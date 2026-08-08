@@ -1,0 +1,8 @@
+{
+  "nome": "Ônibus Circular UFRB - semestre 2025.2",
+  "url": "https://www.ufrb.edu.br/cso/135-horario-do-onibus-circular-semestre-academico-2025-2",
+  "campus": "Cruz das Almas",
+  "operacao": "segunda a sexta",
+  "status_transcricao_horarios": "PENDENTE_VALIDACAO",
+  "observacao": "Transcrever e validar os horários oficiais antes de codificar as previsões."
+}
