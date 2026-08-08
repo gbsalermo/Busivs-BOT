@@ -2,6 +2,45 @@
 
 Documento de retomada rápida do projeto.
 
+## Regra principal de desenvolvimento
+
+> **O BUSIVS BOT deve ser simples e eficaz.**
+
+Este é um projeto desenvolvido principalmente por **vibecoding**. Portanto, toda decisão técnica deve favorecer código pequeno, legível, fácil de testar, fácil de alterar e fácil de entender depois.
+
+Antes de adicionar uma tecnologia, camada, abstração ou dependência, perguntar:
+
+> **Isso resolve um problema que o BUSIVS BOT tem agora?**
+
+Se a resposta for não, não adicionar.
+
+### Evitar
+
+- arquitetura mirabolante;
+- abstrações prematuras;
+- microserviços;
+- frontend próprio sem necessidade;
+- banco mais complexo que o necessário;
+- classes, interfaces ou camadas criadas apenas por padrão arquitetural;
+- dependências para problemas que algumas linhas de Python resolvem bem;
+- otimização para uma escala que o projeto ainda não possui;
+- implementar funcionalidades futuras antes do fluxo atual funcionar.
+
+### Preferir
+
+- Python simples e explícito;
+- poucas dependências;
+- funções pequenas;
+- JSON para dados fixos;
+- SQLite para o pouco estado persistente;
+- uma única regra de negócio reutilizada por diferentes entradas, como `/local` e NFC;
+- implementar uma funcionalidade, testar e só então seguir para a próxima;
+- refatorar apenas quando a complexidade realmente aparecer.
+
+**A arquitetura deve crescer somente quando o problema crescer.**
+
+---
+
 ## Visão do produto
 
 O BUSIVS BOT será um bot de Telegram para estudantes da UFRB - Campus Cruz das Almas.
@@ -48,7 +87,7 @@ Para ter permissão de confirmar passagem:
 3. confirma código no Telegram;
 4. vínculo entre `telegram_id` e e-mail verificado é salvo.
 
-Não criar senha própria.
+Não criar senha própria e nunca solicitar senha institucional.
 
 ## Localização
 
@@ -57,7 +96,7 @@ Duas entradas, uma única regra de negócio:
 - `/local` -> usuário escolhe ponto;
 - NFC -> deep link abre ponto específico.
 
-Ambas chamam a mesma função conceitual:
+Ambas devem terminar na mesma função conceitual:
 
 ```python
 registrar_passagem(
@@ -89,7 +128,7 @@ PROVAVELMENTE_INATIVO
 ENCERRADO
 ```
 
-O estado `PROVAVELMENTE_INATIVO` deve ser apresentado como incerteza.
+O estado `PROVAVELMENTE_INATIVO` deve sempre ser apresentado como incerteza, nunca como confirmação de que o Micro não está operando.
 
 ## Rotas e portões
 
@@ -117,7 +156,7 @@ PORTAO_1_FECHADO
 PORTAO_2_FECHADO
 ```
 
-As rotas alternativas serão listas fixas em JSON.
+As rotas alternativas serão listas fixas em JSON. Não criar algoritmo de roteamento para percursos que já são conhecidos.
 
 ## Período de férias
 
@@ -128,7 +167,7 @@ LETIVO
 FERIAS
 ```
 
-Cada modo aponta para um arquivo de horários.
+Cada modo aponta para seu conjunto de horários.
 
 ## Avisos carinhosos
 
@@ -142,29 +181,68 @@ Exemplos:
 - período de férias;
 - mensagens curtas de bom dia.
 
-## Próximo passo técnico
+## Estado atual do desenvolvimento
 
-Criar a base Python com:
+Branch de trabalho:
+
+```text
+feat/python-base
+```
+
+Base Python criada com:
 
 ```text
 src/
   bot.py
   config.py
-  db.py
-  services/
-    auth.py
-    localizacao.py
-    previsao.py
-    horarios.py
+
+data/
+  pontos.json
+  rotas.json
+  horarios_letivo.json
+
+.env.example
+requirements.txt
 ```
 
-Primeiro objetivo executável:
+Já implementado:
 
-1. bot responde `/start`;
-2. bot carrega pontos e horários de JSON;
-3. `/horarios`;
-4. `/local`;
-5. salvar confirmação;
-6. `/onde` mostra última confirmação.
+- configuração do token por `.env`;
+- inicialização do `python-telegram-bot`;
+- logging básico;
+- comando `/start`;
+- menu inicial com botões inline;
+- arquivos JSON preparados para receber os dados oficiais.
 
-Não implementar NFC antes do fluxo manual estar funcionando.
+Os botões do menu ainda não executam ações. Isso é intencional nesta etapa.
+
+## Próximo passo técnico
+
+Primeiro validar localmente que:
+
+1. ambiente virtual é criado;
+2. dependências instalam;
+3. token é carregado pelo `.env`;
+4. bot inicia;
+5. `/start` mostra o menu corretamente.
+
+Depois disso, implementar **uma funcionalidade por vez**.
+
+Próxima funcionalidade planejada:
+
+```text
+⏰ Próximos horários
+```
+
+Ordem imediata sugerida:
+
+1. validar os horários oficiais;
+2. preencher `horarios_letivo.json`;
+3. criar leitura simples do JSON;
+4. calcular próximo horário;
+5. ligar o botão `Próximos horários`;
+6. testar no Telegram.
+
+Só depois seguir para `/local`, persistência das confirmações, previsão e NFC.
+
+**Não implementar NFC antes do fluxo manual estar funcionando.**
