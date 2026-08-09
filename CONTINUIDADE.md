@@ -41,6 +41,83 @@ Se a resposta for não, não adicionar.
 
 ---
 
+## Regra de infraestrutura e custo
+
+> **O BUSIVS BOT deve buscar custo operacional zero ou próximo de zero.**
+
+O projeto atende um ambiente universitário e não deve depender de infraestrutura cara para funcionar.
+
+A hospedagem deve ser compatível com a natureza simples do sistema: um processo Python leve, conexão com o Telegram e armazenamento local pequeno.
+
+### Estratégia por fase
+
+#### Desenvolvimento
+
+Rodar localmente no computador do desenvolvedor:
+
+```text
+Telegram
+   ↓
+Python local
+   ↓
+BUSIVS BOT
+```
+
+Usar `run_polling()` durante o desenvolvimento.
+
+#### Protótipo / testes com alunos
+
+Priorizar opções gratuitas ou de custo mínimo, desde que consigam manter o processo Python ativo.
+
+Possibilidades a avaliar quando chegar a hora do deploy:
+
+- serviço gratuito simples para protótipo;
+- VM gratuita ou de baixíssimo custo;
+- infraestrutura cedida pela própria UFRB, laboratório, grupo de pesquisa ou setor institucional.
+
+#### Beta / produção
+
+Critérios mínimos:
+
+- executar Python 24/7;
+- acesso à internet para comunicação com o Telegram;
+- armazenamento persistente para o SQLite;
+- custo zero ou muito baixo;
+- configuração simples de manter.
+
+Não escolher o provedor definitivo agora. Preços e planos mudam; a comparação deve ser feita no momento do deploy.
+
+### Princípio de deploy
+
+Enquanto não houver necessidade real, manter:
+
+```text
+Telegram
+   ↓
+bot.py
+   ↓
+SQLite
+```
+
+Evitar adicionar apenas para hospedagem:
+
+- Nginx;
+- Redis;
+- filas;
+- API Gateway;
+- Kubernetes;
+- banco gerenciado pago;
+- frontend separado;
+- microserviços.
+
+Polling pode continuar sendo usado em produção se a hospedagem escolhida suportar um processo Python contínuo. Webhook só será adotado se trouxer uma vantagem concreta.
+
+### Atenção ao SQLite
+
+Ao escolher hospedagem, verificar se o filesystem é persistente. O arquivo do banco não pode desaparecer a cada reinicialização ou novo deploy.
+
+---
+
 ## Visão do produto
 
 O BUSIVS BOT será um bot de Telegram para estudantes da UFRB - Campus Cruz das Almas.
@@ -183,13 +260,9 @@ Exemplos:
 
 ## Estado atual do desenvolvimento
 
-Branch de trabalho:
+A base Python já foi criada e validada localmente.
 
-```text
-feat/python-base
-```
-
-Base Python criada com:
+Estrutura principal:
 
 ```text
 src/
@@ -205,28 +278,21 @@ data/
 requirements.txt
 ```
 
-Já implementado:
+Já implementado e testado:
 
 - configuração do token por `.env`;
 - inicialização do `python-telegram-bot`;
 - logging básico;
 - comando `/start`;
 - menu inicial com botões inline;
+- execução local com `run_polling()`;
 - arquivos JSON preparados para receber os dados oficiais.
+
+O `/start` já foi testado no Telegram com sucesso.
 
 Os botões do menu ainda não executam ações. Isso é intencional nesta etapa.
 
 ## Próximo passo técnico
-
-Primeiro validar localmente que:
-
-1. ambiente virtual é criado;
-2. dependências instalam;
-3. token é carregado pelo `.env`;
-4. bot inicia;
-5. `/start` mostra o menu corretamente.
-
-Depois disso, implementar **uma funcionalidade por vez**.
 
 Próxima funcionalidade planejada:
 

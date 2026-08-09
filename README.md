@@ -2,7 +2,13 @@
 
 Bot comunitário para auxiliar estudantes da UFRB - Campus Cruz das Almas a consultar horários e acompanhar a posição estimada do ônibus circular.
 
-> Status: planejamento do protótipo.
+> Status: protótipo inicial em funcionamento local.
+
+## Interface inicial
+
+O primeiro fluxo do bot já está rodando via Telegram com o comando `/start` e menu por botões inline.
+
+![Interface inicial do BUSIVS BOT](docs/images/interface-inicial.jpg)
 
 ## Objetivo
 
@@ -37,6 +43,14 @@ Regra prevista para o beta:
 - JSON para pontos, rotas, horários e mensagens
 - SMTP/e-mail institucional para autenticação
 - NFC usando deep link do Telegram
+
+## Princípios
+
+- simples e eficaz;
+- arquitetura cresce somente quando o problema crescer;
+- custo operacional zero ou próximo de zero;
+- evitar infraestrutura e dependências desnecessárias;
+- priorizar soluções fáceis de manter em ambiente universitário.
 
 ## Documentação
 
