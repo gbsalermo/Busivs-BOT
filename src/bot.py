@@ -1,9 +1,10 @@
 import logging
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
 from config import TELEGRAM_BOT_TOKEN, validar_configuracao
+from horarios import montar_resumo_horarios
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -32,11 +33,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+async def horarios(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(montar_resumo_horarios("principal"))
+
+
+async def botao_horarios(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    await query.message.reply_text(montar_resumo_horarios("principal"))
+
+
 def criar_aplicacao() -> Application:
     validar_configuracao()
 
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("horarios", horarios))
+    application.add_handler(CallbackQueryHandler(botao_horarios, pattern="^horarios$"))
 
     return application
 
