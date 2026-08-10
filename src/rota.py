@@ -118,6 +118,7 @@ def analisar_trecho(
     return {
         "ponto_anterior": pontos[ponto_anterior]["nome"],
         "ponto_atual": ponto_atual_dados["nome"],
+        "ponto_atual_id": ponto_atual,
         "sentido": item_atual["sentido_apos"],
         "proximo": _proximo_ponto(rota, indice_atual, pontos),
     }
@@ -127,9 +128,16 @@ def formatar_situacao_rota(resultado: dict | None) -> str:
     if resultado is None:
         return "Não foi possível identificar esse trecho na rota cadastrada."
 
+    proximo = resultado["proximo"]
+
+    if proximo is None and resultado.get("ponto_atual_id") == "ru":
+        return (
+            f"📍 Último ponto: {resultado['ponto_atual']}\n"
+            "🏁 Percurso encerrado no RU."
+        )
+
     sentido = resultado["sentido"]
     seta = "➡️" if sentido == "RUA" else "⬅️"
-    proximo = resultado["proximo"]
 
     linhas = [
         f"📍 Último ponto: {resultado['ponto_atual']}",
