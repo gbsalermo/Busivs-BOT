@@ -1,1 +1,18 @@
-{}
+{
+  "principal_normal": [
+    {"ponto_id": "ru", "sentido_apos": "RUA"},
+    {"ponto_id": "fitotecnia", "sentido_apos": "RUA"},
+    {"ponto_id": "solos_neas_florestal", "sentido_apos": "RUA"},
+    {"ponto_id": "pavilhao_1", "sentido_apos": "RUA"},
+    {"ponto_id": "biblioteca", "sentido_apos": "RUA"},
+    {"ponto_id": "pavilhao_2", "sentido_apos": "RUA"},
+    {"ponto_id": "pavilhao_engenharia", "sentido_apos": "RUA", "opcional": true},
+    {"ponto_id": "portao_2", "sentido_apos": "RUA"},
+    {"ponto_id": "ponto_externo_1", "sentido_apos": "RUA"},
+    {"ponto_id": "ponto_externo_2", "sentido_apos": "RU"},
+    {"ponto_id": "portao_1", "sentido_apos": "RU"},
+    {"ponto_id": "biblioteca", "sentido_apos": "RU"},
+    {"ponto_id": "torre_cotec", "sentido_apos": "RU", "opcional": true},
+    {"ponto_id": "ru", "sentido_apos": "RUA"}
+  ]
+}
