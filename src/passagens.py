@@ -520,11 +520,4 @@ def montar_localizacao_atual() -> str:
                     ]
                 )
 
-    linhas.extend(
-        [
-            "",
-            "🧪 Dados temporários desta Etapa 5. Eles expiram ao fim do bloco operacional.",
-        ]
-    )
-
     return "\n".join(linhas)
