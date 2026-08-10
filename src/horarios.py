@@ -90,13 +90,31 @@ def montar_resumo_horarios(veiculo: str = "principal", agora: datetime | None = 
     return mensagem
 
 
+def _pertence_ao_periodo(hora: str, periodo: str) -> bool:
+    minutos = _minutos(hora)
+
+    if periodo == "manha":
+        return minutos <= _minutos("12:20")
+
+    if periodo == "meio_dia":
+        return _minutos("11:30") <= minutos <= _minutos("13:25")
+
+    if periodo == "tarde":
+        return _minutos("13:00") <= minutos < _minutos("17:30")
+
+    if periodo == "noite":
+        return minutos >= _minutos("17:30")
+
+    return False
+
+
 def listar_horarios_periodo(periodo: str, veiculo: str = "principal") -> str:
     dados = carregar_horarios()
     horarios = dados.get(veiculo, [])
     nome = "Principal" if veiculo == "principal" else "Micro"
 
     horarios_periodo = [
-        horario for horario in horarios if horario.get("periodo") == periodo
+        horario for horario in horarios if _pertence_ao_periodo(horario["hora"], periodo)
     ]
 
     if not horarios_periodo:
