@@ -195,6 +195,30 @@ async def botao_registrar_ponto(update: Update, context: ContextTypes.DEFAULT_TY
             )
             return
 
+        if resultado["motivo"] == "fora_circulacao":
+            proxima = resultado.get("proxima")
+            origem = resultado.get("origem", "origem")
+
+            linhas = [
+                "🚫 Não há percurso ativo no momento.",
+                "",
+                f"🚌 Pelo horário, o ônibus provavelmente está em {origem}.",
+            ]
+
+            if proxima is not None:
+                linhas.extend(
+                    [
+                        "⏰ Próxima saída prevista:",
+                        f"     🕐 {proxima['hora']} — {proxima['origem']}",
+                    ]
+                )
+
+            await query.message.reply_text(
+                "\n".join(linhas),
+                reply_markup=teclado_voltar_menu(),
+            )
+            return
+
         await query.message.reply_text(
             "⚠️ Não consegui reconhecer esse ponto.",
             reply_markup=teclado_voltar_menu(),
