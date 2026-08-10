@@ -4,6 +4,8 @@ from pathlib import Path
 
 CAMINHO_HORARIOS = Path(__file__).resolve().parent.parent / "data" / "horarios_letivo.json"
 FUSO_LOCAL = timezone(timedelta(hours=-3))
+MARGEM_RETORNO_MINUTOS = 5
+DURACAO_RETORNO_MINUTOS = 15
 
 TITULOS_PERIODOS = {
     "manha": "🌅 <b>Manhã</b>",
@@ -158,6 +160,64 @@ def proximo_horario(veiculo: str = "principal", agora: datetime | None = None) -
     return None
 
 
+def viagem_em_retorno(veiculo: str = "principal", agora: datetime | None = None) -> dict | None:
+    dados = carregar_horarios()
+    horarios = dados.get(veiculo, [])
+
+    if not horarios:
+        return None
+
+    agora = agora or datetime.now(FUSO_LOCAL)
+    minutos_agora = agora.hour * 60 + agora.minute
+
+    for indice, horario in enumerate(horarios):
+        previsao = estimar_chegada_portao_1(horario["hora"])
+        inicio_retorno = _minutos(previsao["fim"]) + MARGEM_RETORNO_MINUTOS
+        proxima_saida = (
+            _minutos(horarios[indice + 1]["hora"])
+            if indice + 1 < len(horarios)
+            else 24 * 60
+        )
+        fim_retorno = min(inicio_retorno + DURACAO_RETORNO_MINUTOS, proxima_saida)
+
+        if inicio_retorno <= minutos_agora < fim_retorno:
+            return {
+                "viagem": horario,
+                "origem": _nome_origem(horario["origem"]),
+                "inicio_retorno": _formatar_minutos(inicio_retorno),
+                "fim_retorno": _formatar_minutos(fim_retorno),
+                "proxima": horarios[indice + 1] if indice + 1 < len(horarios) else None,
+            }
+
+    return None
+
+
+def aguardando_proxima_saida(veiculo: str = "principal", agora: datetime | None = None) -> dict | None:
+    dados = carregar_horarios()
+    horarios = dados.get(veiculo, [])
+
+    if not horarios:
+        return None
+
+    agora = agora or datetime.now(FUSO_LOCAL)
+    minutos_agora = agora.hour * 60 + agora.minute
+
+    for indice, horario in enumerate(horarios[:-1]):
+        previsao = estimar_chegada_portao_1(horario["hora"])
+        inicio_retorno = _minutos(previsao["fim"]) + MARGEM_RETORNO_MINUTOS
+        fim_retorno = inicio_retorno + DURACAO_RETORNO_MINUTOS
+        proxima = horarios[indice + 1]
+        proxima_saida = _minutos(proxima["hora"])
+
+        if fim_retorno <= minutos_agora < proxima_saida:
+            return {
+                "origem": _nome_origem(horario["origem"]),
+                "proxima": proxima,
+            }
+
+    return None
+
+
 def montar_resumo_horarios(veiculo: str = "principal", agora: datetime | None = None) -> str:
     dados = carregar_horarios()
     horarios = dados.get(veiculo, [])
@@ -179,9 +239,11 @@ def montar_resumo_horarios(veiculo: str = "principal", agora: datetime | None = 
         )
 
     atual = viagem_em_andamento(veiculo, agora)
+    retorno = viagem_em_retorno(veiculo, agora)
+    aguardando = aguardando_proxima_saida(veiculo, agora)
     proximo = proximo_horario(veiculo, agora)
 
-    if atual is None and proximo is None:
+    if atual is None and retorno is None and aguardando is None and proximo is None:
         return (
             f"🚌 <b>Circular UFRB — {nome}</b>\n\n"
             "As viagens de hoje já encerraram.\n\n"
@@ -192,14 +254,28 @@ def montar_resumo_horarios(veiculo: str = "principal", agora: datetime | None = 
     linhas = [f"🚌 <b>Circular UFRB — {nome}</b>"]
 
     if atual is not None:
+        linhas.extend(["", "🚌 <b>VOLTA POSSIVELMENTE EM ANDAMENTO</b>"])
+        linhas.extend(_formatar_viagem(atual))
+        linhas.append("   ℹ️ <i>Situação baseada no horário previsto, não em confirmação de passagem.</i>")
+    elif retorno is not None:
         linhas.extend(
             [
                 "",
-                "🚌 <b>VOLTA POSSIVELMENTE EM ANDAMENTO</b>",
+                "↩️ <b>PERCURSO DE RETORNO</b>",
+                f"⬅️ <b>Sentido: {retorno['origem']}</b>",
+                "📍 O ônibus ainda segue atendendo pontos durante esse percurso.",
+                "ℹ️ <i>Estimativa baseada no horário previsto, não em confirmação de passagem.</i>",
             ]
         )
-        linhas.extend(_formatar_viagem(atual))
-        linhas.append("   ℹ️ <i>Situação baseada no horário previsto, não em confirmação de passagem.</i>")
+    elif aguardando is not None:
+        linhas.extend(
+            [
+                "",
+                f"🅿️ <b>PROVAVELMENTE EM {aguardando['origem'].upper()}</b>",
+                "O percurso anterior provavelmente já foi concluído.",
+                "ℹ️ <i>Estimativa baseada no horário previsto.</i>",
+            ]
+        )
 
     if proximo is not None:
         linhas.extend(["", "🟢 <b>PRÓXIMA VIAGEM</b>"])
