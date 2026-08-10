@@ -143,21 +143,31 @@ Esses dados devem ficar em JSON.
 
 ### Dados dinâmicos
 
-- usuários autenticados;
-- código de verificação de e-mail (temporário);
 - última confirmação de passagem;
 - histórico mínimo de confirmações;
 - estado diário do Principal;
 - estado diário do Micro;
-- modo atual da rota.
+- modo atual da rota;
+- `telegram_id` apenas quando for útil para identificar a origem de uma confirmação ou aplicar controles simples contra abuso.
 
 SQLite é suficiente.
 
-## Autenticação
+## Autenticação - decisão atual
 
-O Telegram identifica o usuário pelo `telegram_id`.
+**A autenticação institucional não fará parte do protótipo inicial.**
 
-Para ter permissão de confirmar passagem:
+Motivo: horários e informações do circular são públicos, e exigir autenticação logo no início aumenta o atrito para o aluno, dificulta a experimentação e pode prejudicar a adoção do sistema.
+
+No protótipo:
+
+- consulta de horários será pública;
+- consulta da localização estimada será pública;
+- o fluxo manual de informar passagem também será testado sem exigir e-mail institucional;
+- o Telegram já fornece um `telegram_id`, que poderá ser usado internamente se for necessário aplicar controles básicos contra spam ou abuso.
+
+A autenticação por e-mail institucional ficará para **depois do protótipo**, e só será implementada se surgir uma necessidade concreta de aumentar confiança, limitar abuso ou diferenciar permissões.
+
+Se essa etapa for necessária futuramente, a ideia continua sendo:
 
 1. usuário informa e-mail institucional;
 2. recebe código nesse e-mail;
@@ -412,9 +422,9 @@ Para viagens cuja origem oficial é `Garagem`, a previsão do Portão 1 ainda é
 
 ---
 
-# Próxima etapa - Pontos, rota, sentido e próximo ponto
+# Etapa 3 - Pontos, rota, sentido e próximo ponto
 
-`data/pontos.json` e `data/rotas.json` ainda estão vazios. A próxima etapa deve preenchê-los apenas com a rota validada pelo usuário.
+`data/pontos.json` e `data/rotas.json` ainda estão vazios. A etapa atual deve preenchê-los apenas com a rota validada pelo usuário.
 
 ## Objetivo
 
@@ -498,20 +508,41 @@ Isso mantém o sistema simples e também resolve ambiguidades de pontos repetido
 3. preencher `rotas.json`;
 4. criar função simples para descobrir sentido e próximo ponto;
 5. criar uma simulação manual antes de persistir confirmações;
-6. depois conectar essa regra ao futuro fluxo `/local`.
+6. depois conectar essa regra ao fluxo `/local`.
 
 **Ainda não implementar NFC.** Primeiro validar o fluxo manual e a lógica de rota.
 
 ---
 
-## Estado resumido
+# Planejamento atualizado do protótipo
 
 ```text
-Etapa 1 - Base do bot                         ✅ concluída
-Etapa 2 - Horários fixos do Principal        ✅ concluída
-Etapa 3 - Pontos / rota / sentido             ⏭️ próxima
-Etapa 4 - Autenticação institucional          ⏳ futura
-Etapa 5 - Informar passagem (/local)           ⏳ futura
-Etapa 6 - ETA por confirmações                 ⏳ futura
-Etapa 7 - NFC                                  ⏳ futura
+Etapa 1  - Base do bot                              ✅ concluída
+Etapa 2  - Horários fixos do Principal             ✅ concluída
+Etapa 3  - Pontos / rota / sentido / próximo ponto ⏭️ atual
+Etapa 4  - Informar passagem (/local)               ⏳ próxima
+Etapa 5  - Onde está / última confirmação / ETA     ⏳ futura
+Etapa 6  - Principal + Micro                        ⏳ futura
+Etapa 7  - NFC                                      ⏳ futura
+Etapa 8  - Desvios dos portões                      ⏳ futura
+Etapa 9  - Modo de férias                           ⏳ futura
+Etapa 10 - Autenticação institucional               ⏳ pós-protótipo / se necessária
+Etapa 11 - Avisos                                   ⏳ futura
 ```
+
+## Núcleo do protótipo inicial
+
+O protótipo inicial deve priorizar as Etapas **1 a 5**.
+
+Ao final delas, o aluno já poderá:
+
+- consultar os horários públicos;
+- ver a rota e o sentido do ônibus;
+- informar manualmente uma passagem;
+- consultar a última confirmação;
+- ver o próximo ponto esperado;
+- receber uma estimativa simples baseada nas confirmações.
+
+Tudo isso deve funcionar **sem obrigar cadastro institucional**.
+
+A autenticação só entra depois se os testes reais mostrarem que ela resolve um problema concreto.
