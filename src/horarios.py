@@ -116,6 +116,31 @@ def _formatar_viagem(horario: dict) -> list[str]:
     return linhas
 
 
+def viagem_em_andamento(veiculo: str = "principal", agora: datetime | None = None) -> dict | None:
+    dados = carregar_horarios()
+    horarios = dados.get(veiculo, [])
+
+    if not horarios:
+        return None
+
+    agora = agora or datetime.now(FUSO_LOCAL)
+    minutos_agora = agora.hour * 60 + agora.minute
+
+    candidatos = []
+    for horario in horarios:
+        minutos_saida = _minutos(horario["hora"])
+        previsao = estimar_chegada_portao_1(horario["hora"])
+        minutos_fim = _minutos(previsao["fim"])
+
+        if minutos_saida <= minutos_agora <= minutos_fim:
+            candidatos.append(horario)
+
+    if not candidatos:
+        return None
+
+    return max(candidatos, key=lambda horario: _minutos(horario["hora"]))
+
+
 def proximo_horario(veiculo: str = "principal", agora: datetime | None = None) -> dict | None:
     dados = carregar_horarios()
     horarios = dados.get(veiculo, [])
@@ -127,7 +152,7 @@ def proximo_horario(veiculo: str = "principal", agora: datetime | None = None) -
     minutos_agora = agora.hour * 60 + agora.minute
 
     for horario in horarios:
-        if _minutos(horario["hora"]) >= minutos_agora:
+        if _minutos(horario["hora"]) > minutos_agora:
             return horario
 
     return None
@@ -153,9 +178,10 @@ def montar_resumo_horarios(veiculo: str = "principal", agora: datetime | None = 
             f"🌙 <b>Último horário:</b> <code>{ultimo['hora']}</code>"
         )
 
+    atual = viagem_em_andamento(veiculo, agora)
     proximo = proximo_horario(veiculo, agora)
 
-    if proximo is None:
+    if atual is None and proximo is None:
         return (
             f"🚌 <b>Circular UFRB — {nome}</b>\n\n"
             "As viagens de hoje já encerraram.\n\n"
@@ -163,19 +189,28 @@ def montar_resumo_horarios(veiculo: str = "principal", agora: datetime | None = 
             f"🌙 <b>Último horário:</b> <code>{ultimo['hora']}</code>"
         )
 
-    indice = horarios.index(proximo)
-    depois = horarios[indice + 1] if indice + 1 < len(horarios) else None
+    linhas = [f"🚌 <b>Circular UFRB — {nome}</b>"]
 
-    linhas = [
-        f"🚌 <b>Circular UFRB — {nome}</b>",
-        "",
-        "🟢 <b>PRÓXIMA VIAGEM</b>",
-    ]
-    linhas.extend(_formatar_viagem(proximo))
+    if atual is not None:
+        linhas.extend(
+            [
+                "",
+                "🚌 <b>VOLTA POSSIVELMENTE EM ANDAMENTO</b>",
+            ]
+        )
+        linhas.extend(_formatar_viagem(atual))
+        linhas.append("   ℹ️ <i>Situação baseada no horário previsto, não em confirmação de passagem.</i>")
 
-    if depois:
-        linhas.extend(["", "⏭️ <b>VIAGEM SEGUINTE</b>"])
-        linhas.extend(_formatar_viagem(depois))
+    if proximo is not None:
+        linhas.extend(["", "🟢 <b>PRÓXIMA VIAGEM</b>"])
+        linhas.extend(_formatar_viagem(proximo))
+
+        indice = horarios.index(proximo)
+        depois = horarios[indice + 1] if indice + 1 < len(horarios) else None
+
+        if depois:
+            linhas.extend(["", "⏭️ <b>VIAGEM SEGUINTE</b>"])
+            linhas.extend(_formatar_viagem(depois))
 
     linhas.extend(
         [
