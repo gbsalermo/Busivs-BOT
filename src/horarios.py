@@ -131,14 +131,13 @@ def _formatar_viagem(horario: dict) -> list[str]:
     nome_origem = _nome_origem(origem)
     previsao = estimar_chegada_portao_1(hora)
 
+    alerta = " ⚠️ (horário de pico)" if previsao["pico"] else ""
     linhas = [
-        f"🕒 <code>{hora}</code> · {nome_origem} → Rua",
+        f"🕒 <code>{hora}</code> · {nome_origem} → Rua{alerta}",
         f"🚪 Portão 1: <code>{previsao['inicio']}</code>–<code>{previsao['fim']}</code>",
     ]
 
-    if previsao["pico"]:
-        linhas.append("⚠️ <i>Horário de pico — pode haver atraso.</i>")
-    elif previsao["noturno"]:
+    if previsao["noturno"] and not previsao["pico"]:
         linhas.append("🌙 <i>À noite pode chegar antes da estimativa.</i>")
 
     return linhas
@@ -290,7 +289,7 @@ def montar_resumo_horarios(veiculo: str = "principal", agora: datetime | None = 
         linhas.extend(["", "📋 <b>Próximos horários</b>"])
         for horario in seguintes:
             previsao = estimar_chegada_portao_1(horario["hora"])
-            alerta = " ⚠️" if previsao["pico"] else ""
+            alerta = " ⚠️ (horário de pico)" if previsao["pico"] else ""
             linhas.extend(
                 [
                     f"<code>{horario['hora']}</code> · {_nome_origem(horario['origem'])} → Rua{alerta}",
@@ -322,7 +321,7 @@ def _formatar_saida_compacta(horario: dict) -> str:
     hora = horario["hora"]
     origem = _nome_origem(horario["origem"])
     previsao = estimar_chegada_portao_1(hora)
-    alerta = " ⚠️" if previsao["pico"] else ""
+    alerta = " ⚠️ (horário de pico)" if previsao["pico"] else ""
 
     return (
         f"<code>{hora}</code> · {origem}  "
@@ -356,11 +355,12 @@ def listar_horarios_periodo(periodo: str, veiculo: str = "principal") -> str:
 
     if proxima is not None:
         previsao_proxima = estimar_chegada_portao_1(proxima["hora"])
+        alerta_proxima = " ⚠️ (horário de pico)" if previsao_proxima["pico"] else ""
         linhas.extend(
             [
                 "",
                 "🟢 <b>PRÓXIMO ÔNIBUS</b>",
-                f"<code>{proxima['hora']}</code> · saída do {_nome_origem(proxima['origem'])}",
+                f"<code>{proxima['hora']}</code> · saída do {_nome_origem(proxima['origem'])}{alerta_proxima}",
                 f"🚪 Portão 1: <code>{previsao_proxima['inicio']}</code>–<code>{previsao_proxima['fim']}</code>",
             ]
         )
