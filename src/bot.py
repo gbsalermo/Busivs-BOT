@@ -56,7 +56,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def horarios(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     mensagem = update.effective_message
     if mensagem:
-        await mensagem.reply_text(montar_resumo_horarios("principal"))
+        await mensagem.reply_text(
+            montar_resumo_horarios("principal"),
+            parse_mode="HTML",
+        )
 
 
 async def comando_listar_horarios(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -71,7 +74,10 @@ async def comando_listar_horarios(update: Update, context: ContextTypes.DEFAULT_
 async def botao_horarios(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
-    await query.message.reply_text(montar_resumo_horarios("principal"))
+    await query.message.reply_text(
+        montar_resumo_horarios("principal"),
+        parse_mode="HTML",
+    )
 
 
 async def botao_listar_horarios(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -88,7 +94,10 @@ async def botao_periodo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await query.answer()
 
     periodo = query.data.replace("periodo_", "", 1)
-    await query.message.reply_text(listar_horarios_periodo(periodo, "principal"))
+    await query.message.reply_text(
+        listar_horarios_periodo(periodo, "principal"),
+        parse_mode="HTML",
+    )
 
 
 def criar_aplicacao() -> Application:
