@@ -8,10 +8,24 @@ MARGEM_RETORNO_MINUTOS = 5
 DURACAO_RETORNO_MINUTOS = 15
 
 TITULOS_PERIODOS = {
-    "manha": "🌅 <b>Manhã</b>",
-    "meio_dia": "🍽️ <b>Almoço</b>",
-    "tarde": "🌤️ <b>Tarde</b>",
-    "noite": "🌙 <b>Noite</b>",
+    "manha": "🌅 <b>Horários da manhã</b>",
+    "meio_dia": "🍽️ <b>Horários do almoço</b>",
+    "tarde": "🌤️ <b>Horários da tarde</b>",
+    "noite": "🌙 <b>Horários da noite</b>",
+}
+
+NOMES_PERIODOS = {
+    "manha": "manhã",
+    "meio_dia": "almoço",
+    "tarde": "tarde",
+    "noite": "noite",
+}
+
+FAIXAS_PICO_PERIODOS = {
+    "manha": "07:40–08:20 e 11:30–12:45",
+    "meio_dia": "11:30–14:00",
+    "tarde": "13:00–14:00",
+    "noite": "17:30–18:40",
 }
 
 
@@ -298,6 +312,28 @@ def montar_resumo_horarios(veiculo: str = "principal", agora: datetime | None = 
     return "\n".join(linhas)
 
 
+def _proxima_saida_do_periodo(horarios_periodo: list[dict], agora: datetime) -> dict | None:
+    minutos_agora = agora.hour * 60 + agora.minute
+
+    for horario in horarios_periodo:
+        if _minutos(horario["hora"]) >= minutos_agora:
+            return horario
+
+    return None
+
+
+def _formatar_saida_compacta(horario: dict) -> str:
+    hora = horario["hora"]
+    origem = _nome_origem(horario["origem"])
+    previsao = estimar_chegada_portao_1(hora)
+    alerta = " ⚠️" if previsao["pico"] else ""
+
+    return (
+        f"<code>{hora}</code> · {origem}  "
+        f"🚪 <code>{previsao['inicio']}</code>–<code>{previsao['fim']}</code>{alerta}"
+    )
+
+
 def listar_horarios_periodo(periodo: str, veiculo: str = "principal") -> str:
     dados = carregar_horarios()
     horarios = dados.get(veiculo, [])
@@ -310,18 +346,56 @@ def listar_horarios_periodo(periodo: str, veiculo: str = "principal") -> str:
     if not horarios_periodo:
         return f"📋 <b>{nome}</b>\n\nNenhum horário cadastrado para este período."
 
+    agora = datetime.now(FUSO_LOCAL)
+    proxima = _proxima_saida_do_periodo(horarios_periodo, agora)
+    nome_periodo = NOMES_PERIODOS.get(periodo, "período")
+
     linhas = [
         f"🚌 <b>Circular UFRB — {nome}</b>",
         TITULOS_PERIODOS.get(periodo, periodo.title()),
         "",
+        "➡️ <b>SENTIDO: RUA</b>",
+        "🚪 Referência: passagem no Portão 1",
     ]
 
-    for horario in horarios_periodo:
-        linhas.extend(_formatar_viagem(horario))
-        linhas.append("")
+    if proxima is not None:
+        previsao_proxima = estimar_chegada_portao_1(proxima["hora"])
+        linhas.extend(
+            [
+                "",
+                "🟢 <b>PRÓXIMO ÔNIBUS</b>",
+                f"<code>{proxima['hora']}</code> · saída do {_nome_origem(proxima['origem'])}",
+                f"🚪 Portão 1: <code>{previsao_proxima['inicio']}</code>–<code>{previsao_proxima['fim']}</code>",
+            ]
+        )
+    else:
+        linhas.extend(
+            [
+                "",
+                f"✅ Não há mais saídas previstas para este período hoje.",
+            ]
+        )
 
-    linhas.append(
-        "ℹ️ <i>Retorno no Portão 1 é uma previsão aproximada e pode variar.</i>"
-    )
+    linhas.extend(["", f"📋 <b>Saídas do {nome_periodo}</b>"])
+
+    for horario in horarios_periodo:
+        linhas.append(_formatar_saida_compacta(horario))
+
+    if any(estimar_chegada_portao_1(horario["hora"])["pico"] for horario in horarios_periodo):
+        faixa_pico = FAIXAS_PICO_PERIODOS.get(periodo)
+        linhas.extend(
+            [
+                "",
+                f"⚠️ <b>Horário de pico:</b> {faixa_pico}" if faixa_pico else "⚠️ <b>Há horários de pico neste período.</b>",
+                "Pode haver pequenos atrasos.",
+            ]
+        )
+    else:
+        linhas.extend(
+            [
+                "",
+                "ℹ️ Horários do Portão 1 são previsões e podem variar.",
+            ]
+        )
 
     return "\n".join(linhas)
