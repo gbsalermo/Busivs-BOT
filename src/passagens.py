@@ -271,6 +271,16 @@ def _formatar_movimento(resultado: dict) -> str:
     linhas = []
 
     if proximo is None:
+        if resultado.get("ponto_atual_id") == "ru":
+            linhas.extend(
+                [
+                    "🏁 Chegada ao RU / fim da volta confirmada.",
+                    "🚌 O ônibus pode estar concluindo a volta anterior ou aguardando/iniciando uma nova saída.",
+                    "ℹ️ Não é possível afirmar o sentido apenas por esta confirmação; os horários podem sofrer atraso.",
+                ]
+            )
+            return "\n".join(linhas)
+
         linhas.append("🏁 Fim do percurso cadastrado.")
         linhas.append(f"{seta} Sentido: {sentido}")
         return "\n".join(linhas)
