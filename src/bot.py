@@ -5,7 +5,8 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 
 from config import TELEGRAM_BOT_TOKEN, validar_configuracao
 from horarios import listar_horarios_periodo, montar_resumo_horarios
-from rota import analisar_trecho, formatar_situacao_rota
+from passagens import montar_localizacao_atual, registrar_passagem
+from rota import carregar_pontos
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -14,10 +15,21 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-# Temporário: usado apenas para validar a experiência do botão "Onde está o ônibus?"
-# antes de implementarmos o registro real de passagens.
-PONTO_ANTERIOR_SIMULADO = "portao_1"
-PONTO_ATUAL_SIMULADO = "biblioteca"
+
+ROTULOS_PONTOS = {
+    "ru": "RU / Residências",
+    "fitotecnia": "Fitotecnia",
+    "solos_neas_florestal": "Solos / NEAS / Florestal",
+    "pavilhao_1": "Pavilhão I",
+    "biblioteca": "Biblioteca",
+    "pavilhao_2": "Pavilhão II",
+    "pavilhao_engenharia": "Pav. Engenharia",
+    "portao_2": "Portão 2",
+    "ponto_externo_1": "Ponto Externo I / Alex",
+    "ponto_externo_2": "Ponto Externo II / Canãa",
+    "portao_1": "Portão 1",
+    "torre_cotec": "Torre / COTEC",
+}
 
 
 def teclado_periodos() -> InlineKeyboardMarkup:
@@ -35,20 +47,18 @@ def teclado_periodos() -> InlineKeyboardMarkup:
     )
 
 
-def montar_localizacao_simulada() -> str:
-    resultado = analisar_trecho(
-        PONTO_ANTERIOR_SIMULADO,
-        PONTO_ATUAL_SIMULADO,
-    )
+def teclado_pontos() -> InlineKeyboardMarkup:
+    pontos = carregar_pontos()
+    botoes = []
 
-    situacao = formatar_situacao_rota(resultado)
+    for ponto_id in pontos:
+        rotulo = ROTULOS_PONTOS.get(ponto_id, pontos[ponto_id]["nome"])
+        botoes.append(
+            InlineKeyboardButton(rotulo, callback_data=f"local_{ponto_id}")
+        )
 
-    return (
-        "🧪 MODO SIMULAÇÃO\n\n"
-        f"{situacao}\n\n"
-        "ℹ️ Esta localização é apenas para teste da Etapa 3. "
-        "Ainda não representa uma confirmação real de passagem."
-    )
+    linhas = [botoes[i : i + 2] for i in range(0, len(botoes), 2)]
+    return InlineKeyboardMarkup(linhas)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -61,9 +71,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         [InlineKeyboardButton("📢 Avisos", callback_data="avisos")],
     ]
 
-    reply_markup = InlineKeyboardMarkup(keyboard)
     mensagem = update.effective_message
-
     if mensagem is None:
         return
 
@@ -71,20 +79,80 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "🚌 BUSIVS BOT\n\n"
         "Acompanhe o circular da UFRB de forma colaborativa.\n\n"
         "Escolha uma opção:",
-        reply_markup=reply_markup,
+        reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
 
 async def onde(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     mensagem = update.effective_message
     if mensagem:
-        await mensagem.reply_text(montar_localizacao_simulada())
+        await mensagem.reply_text(montar_localizacao_atual())
 
 
 async def botao_onde(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
-    await query.message.reply_text(montar_localizacao_simulada())
+    await query.message.reply_text(montar_localizacao_atual())
+
+
+async def local(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    mensagem = update.effective_message
+    if mensagem:
+        await mensagem.reply_text(
+            "📍 Onde o ônibus acabou de passar?\n\n"
+            "Toque no ponto correspondente. A primeira confirmação do mesmo ponto é a que vale.",
+            reply_markup=teclado_pontos(),
+        )
+
+
+async def botao_local(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    await query.message.reply_text(
+        "📍 Onde o ônibus acabou de passar?\n\n"
+        "Toque no ponto correspondente. A primeira confirmação do mesmo ponto é a que vale.",
+        reply_markup=teclado_pontos(),
+    )
+
+
+async def botao_registrar_ponto(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    ponto_id = query.data.replace("local_", "", 1)
+    usuario = update.effective_user
+    telegram_id = usuario.id if usuario else None
+
+    resultado = registrar_passagem(ponto_id, telegram_id)
+
+    if not resultado["aceito"]:
+        if resultado["motivo"] == "duplicado":
+            horario = resultado.get("horario")
+            horario_texto = horario.strftime("%H:%M:%S") if horario else "--:--"
+            await query.message.reply_text(
+                f"✅ {resultado['ponto']} já foi confirmado às {horario_texto}.\n\n"
+                "A primeira confirmação continua valendo."
+            )
+            return
+
+        await query.message.reply_text("⚠️ Não consegui reconhecer esse ponto.")
+        return
+
+    horario_texto = resultado["horario"].strftime("%H:%M:%S")
+
+    if resultado["primeiro_registro"]:
+        await query.message.reply_text(
+            f"✅ Passagem confirmada: {resultado['ponto']}\n"
+            f"🕐 {horario_texto}\n\n"
+            "Esse é o primeiro registro da sessão. O próximo ponto diferente ajudará a identificar o sentido."
+        )
+        return
+
+    await query.message.reply_text(
+        f"✅ Passagem confirmada: {resultado['ponto']}\n"
+        f"🕐 {horario_texto}\n\n"
+        "A localização colaborativa foi atualizada."
+    )
 
 
 async def horarios(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -140,16 +208,18 @@ def criar_aplicacao() -> Application:
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("onde", onde))
+    application.add_handler(CommandHandler("local", local))
     application.add_handler(CommandHandler("horarios", horarios))
     application.add_handler(CommandHandler("listar_horarios", comando_listar_horarios))
+
     application.add_handler(CallbackQueryHandler(botao_onde, pattern="^onde$"))
+    application.add_handler(CallbackQueryHandler(botao_local, pattern="^local$"))
+    application.add_handler(CallbackQueryHandler(botao_registrar_ponto, pattern="^local_"))
     application.add_handler(CallbackQueryHandler(botao_horarios, pattern="^horarios$"))
     application.add_handler(
         CallbackQueryHandler(botao_listar_horarios, pattern="^listar_horarios$")
     )
-    application.add_handler(
-        CallbackQueryHandler(botao_periodo, pattern="^periodo_")
-    )
+    application.add_handler(CallbackQueryHandler(botao_periodo, pattern="^periodo_"))
 
     return application
 
