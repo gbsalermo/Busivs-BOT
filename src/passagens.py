@@ -180,6 +180,29 @@ def _tempo_desde_confirmacao(horario: datetime | None, agora: datetime | None = 
     return f"há {horas}h {minutos_restantes}min"
 
 
+def _possivel_atraso_portao_1(
+    ponto_id: str,
+    horario_confirmacao: datetime | None,
+    resultado_rota: dict | None,
+) -> bool:
+    """Primeira regra experimental de atraso: apenas Portão 1 às 10:20."""
+    if horario_confirmacao is None:
+        return False
+
+    if ponto_id not in {"biblioteca", "pavilhao_2"}:
+        return False
+
+    # Biblioteca também aparece no retorno. Se já sabemos que o sentido é RU,
+    # não devemos interpretar esse registro como risco de atraso no Portão 1.
+    if resultado_rota is not None and resultado_rota.get("sentido") != "RUA":
+        return False
+
+    inicio = horario_confirmacao.replace(hour=10, minute=15, second=0, microsecond=0)
+    fim = horario_confirmacao.replace(hour=10, minute=20, second=59, microsecond=999999)
+
+    return inicio <= horario_confirmacao <= fim
+
+
 def registrar_passagem(ponto_id: str, telegram_id: int | None = None) -> dict:
     pontos = carregar_pontos()
 
@@ -230,18 +253,30 @@ def montar_localizacao_atual() -> str:
     horario = _estado["horario"]
     horario_texto = horario.strftime("%H:%M:%S") if horario else "--:--"
     tempo_texto = _tempo_desde_confirmacao(horario)
-    ponto_nome = _nome_ponto(_estado["ponto_atual"])
+    ponto_id = _estado["ponto_atual"]
+    ponto_nome = _nome_ponto(ponto_id)
+    resultado = _estado["resultado_rota"]
 
     linhas = [
         f"📍 Última confirmação: {ponto_nome}",
         f"🕐 {tempo_texto} ({horario_texto})",
     ]
 
-    resultado = _estado["resultado_rota"]
+    if _possivel_atraso_portao_1(ponto_id, horario, resultado):
+        linhas.extend(
+            [
+                "",
+                "⚠️ Possível atraso no Portão 1",
+                "🚪 Passagem esperada por volta de 10:20.",
+                f"📍 O último registro ainda está em {ponto_nome}.",
+                "ℹ️ É uma estimativa, não uma confirmação de atraso.",
+            ]
+        )
+
     if resultado is not None:
         linhas.extend(["", formatar_situacao_rota(resultado)])
     else:
-        estimativa = _estimar_primeiro_registro_por_horario(_estado["ponto_atual"], horario)
+        estimativa = _estimar_primeiro_registro_por_horario(ponto_id, horario)
 
         if estimativa is not None:
             linhas.extend(
