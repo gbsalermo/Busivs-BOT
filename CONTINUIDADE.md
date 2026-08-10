@@ -1,6 +1,22 @@
 # CONTINUIDADE - BUSIVS BOT
 
-Documento de retomada rápida do projeto.
+Documento técnico de retomada rápida do projeto.
+
+---
+
+# Regras importantes para contribuir
+
+Antes de mexer no projeto, manter estas regras em mente:
+
+1. **Não tratar estimativa como confirmação.**
+2. **Não inferir sentido apenas pelo nome do ponto.**
+3. **Manter horários, pontos e rotas nos JSONs sempre que possível.**
+4. **Evitar adicionar infraestrutura sem necessidade concreta.**
+5. **Testar Biblioteca nos dois sentidos ao alterar lógica de rota.**
+6. **Considerar que o ônibus pode estar atrasado antes de bloquear uma passagem.**
+7. **Preferir soluções simples que outro aluno consiga entender.**
+8. **Não criar dependências ou serviços novos sem um problema real que justifique isso.**
+9. **Mudanças técnicas devem preservar a diferença entre dado confirmado e dado estimado.**
 
 ## Princípio principal
 
@@ -34,6 +50,108 @@ python-dotenv
 ```
 
 SQLite continua sendo apenas uma opção futura caso persistência passe a ser necessária.
+
+---
+
+# Onde mexer?
+
+## Quero alterar um horário
+
+Edite:
+
+```text
+data/horarios_letivo.json
+```
+
+Evite escrever horários diretamente dentro do Python.
+
+## Quero adicionar ou renomear um ponto
+
+Edite:
+
+```text
+data/pontos.json
+```
+
+Depois confira se `data/rotas.json` continua referenciando o ID correto.
+
+## Quero mudar a sequência da rota
+
+Edite:
+
+```text
+data/rotas.json
+```
+
+Depois rode os testes de rota.
+
+## Quero mudar regras de horário ou estados da viagem
+
+Arquivo:
+
+```text
+src/horarios.py
+```
+
+Aqui ficam regras como:
+
+- viagem possivelmente em andamento;
+- previsão do Portão 1;
+- percurso de retorno;
+- provável espera na origem;
+- próxima saída.
+
+## Quero mudar registro de passagem ou "Onde está o ônibus?"
+
+Arquivo:
+
+```text
+src/passagens.py
+```
+
+Aqui ficam:
+
+- estado temporário das confirmações;
+- cálculo de tempo desde a confirmação;
+- integração entre horário e rota;
+- proteção contra passagem fora de circulação;
+- mensagem de localização atual.
+
+## Quero mudar botões, comandos ou mensagens do Telegram
+
+Arquivo:
+
+```text
+src/bot.py
+```
+
+## Quero mudar interpretação de sentido ou próximo ponto
+
+Arquivo:
+
+```text
+src/rota.py
+```
+
+## Quero alterar dados fixos
+
+```text
+data/horarios_letivo.json
+data/pontos.json
+data/rotas.json
+```
+
+## Quero validar a rota
+
+```bash
+python -m unittest tests/test_rota.py
+```
+
+Simulador manual:
+
+```bash
+python tests/simular_rota.py
+```
 
 ---
 
@@ -73,7 +191,7 @@ No protótipo:
 - `telegram_id` pode ser mantido internamente para controles simples;
 - autenticação por e-mail institucional só será estudada se surgir problema real de abuso ou confiança.
 
-A primeira proteção contra abuso já foi implementada usando **contexto de horário + confirmação recente**, sem exigir login.
+A primeira proteção contra abuso já foi implementada usando contexto de horário + confirmação recente, sem exigir login.
 
 ---
 
@@ -151,7 +269,7 @@ A previsão é estimativa, não GPS.
 
 ## Estados baseados em horário
 
-O protótipo passou a trabalhar com uma sequência simples de estados:
+O protótipo trabalha com uma sequência simples:
 
 ```text
 1. viagem possivelmente em andamento
@@ -230,23 +348,11 @@ Pontos opcionais podem ser pulados sem quebrar a análise.
 Fluxo atual:
 
 - usuário toca em `📍 Informar passagem`;
-- escolhe o ponto por botão, sem precisar digitar;
+- escolhe o ponto por botão;
 - o estado é atualizado em memória;
 - registros consecutivos do mesmo ponto não alteram novamente o estado.
 
-Experiência do usuário:
-
-```text
-Primeira resposta válida:
-Valeu! Registramos o ponto 😊
-
-Resposta repetida do mesmo ponto:
-Obrigado pela informação 😊
-```
-
-O segundo usuário não é informado de que sua resposta foi descartada, para não desmotivar a colaboração.
-
-Estado atual fica em memória e é apagado quando o processo do bot reinicia. Isso continua aceitável no protótipo porque a informação é pequena e altamente temporária.
+O estado atual fica em memória e é apagado quando o processo do bot reinicia. Isso continua aceitável no protótipo porque a informação é pequena e altamente temporária.
 
 ## Proteção contra passagem falsa fora de circulação
 
@@ -262,19 +368,7 @@ sem confirmação válida nos últimos 30 minutos
 bloquear nova passagem
 ```
 
-Objetivo: impedir que alguém registre uma passagem quando o horário indica que o ônibus provavelmente já está parado na origem.
-
-A margem de 30 minutos existe para não bloquear um ônibus que esteja realmente atrasado.
-
-Exemplo de resposta:
-
-```text
-🚫 Não há percurso ativo no momento.
-
-🚌 Pelo horário, o ônibus provavelmente está em Garagem.
-⏰ Próxima saída prevista:
-     🕐 11:30 — Garagem
-```
+A margem existe para evitar bloquear uma viagem realmente atrasada.
 
 ---
 
@@ -282,28 +376,19 @@ Exemplo de resposta:
 
 **Concluída no protótipo inicial e validada manualmente.**
 
-A implementação já está na `main`.
+A implementação está na `main`.
 
 ## Sem confirmação real
 
-Se existir uma viagem compatível com o horário oficial, o bot informa uma estimativa de saída sem afirmar que ela realmente aconteceu.
-
-Exemplo:
-
-```text
-🚌 Pelo horário oficial, o ônibus deve ter saído da Garagem às 10:00.
-➡️ Sentido provável: RUA
-
-ℹ️ Informação baseada apenas no horário previsto, não em confirmação real.
-```
+Quando existir uma viagem compatível com o horário oficial, o bot informa uma estimativa de saída sem afirmar que ela realmente aconteceu.
 
 ## Primeira confirmação
 
-A primeira confirmação usa o horário oficial como contexto para estimar sentido e próximo ponto.
+A primeira confirmação pode usar o horário oficial como contexto para estimar sentido e próximo ponto.
 
 ## Duas ou mais confirmações
 
-Depois que existe contexto suficiente de rota, a apresentação mostra apenas o que é útil para o aluno:
+Depois que existe contexto suficiente de rota, a apresentação mostra:
 
 ```text
 📍 Última confirmação: Ponto Externo I / Alex
@@ -314,7 +399,7 @@ Depois que existe contexto suficiente de rota, a apresentação mostra apenas o 
 ➡️ Sentido: RUA
 ```
 
-Não existe mais a ideia de mostrar um segundo campo de "último ponto" ou "ponto de referência da rota".
+Não existe mais um segundo campo de "último ponto" ou "ponto de referência".
 
 ## Percurso de retorno
 
@@ -326,8 +411,6 @@ Depois da janela estimada do Portão 1, o bot pode informar:
 ⬅️ Sentido: Garagem
 📍 O ônibus ainda segue atendendo pontos durante esse percurso.
 ```
-
-A mensagem evita dar a impressão de que o ônibus deixa de atender pontos assim que entra no retorno.
 
 ## Aguardando próxima saída
 
@@ -341,7 +424,7 @@ Depois da janela estimada de retorno:
      🕐 11:30 — Garagem
 ```
 
-Esse estado também é usado pela proteção contra registros falsos.
+Esse estado também é usado pela proteção contra registros fora de circulação.
 
 ## Tempo desde a confirmação
 
@@ -357,9 +440,7 @@ O horário exato continua aparecendo entre parênteses durante o protótipo para
 
 ## Regra experimental de possível atraso - Portão 1
 
-Por enquanto o mecanismo de atraso continua restrito ao primeiro caso estudado.
-
-Regra:
+A primeira regra de atraso continua restrita ao caso estudado:
 
 ```text
 janela: 10:15 até 10:20
@@ -368,17 +449,9 @@ contexto: sentido RUA
 previsão Portão 1: por volta de 10:20
 ```
 
-Nesse caso o bot pode mostrar:
-
-```text
-⚠️ Possível atraso no Portão 1
-🚪 Passagem esperada por volta de 10:20.
-ℹ️ É uma estimativa, não uma confirmação de atraso.
-```
-
 Não disparar essa regra para Biblioteca no retorno, quando o sentido já for RU.
 
-Essa regra continua experimental. Não generalizar para todos os horários antes de observar o uso real.
+Não generalizar para todos os horários antes de observar o uso real.
 
 ---
 
@@ -386,7 +459,7 @@ Essa regra continua experimental. Não generalizar para todos os horários antes
 
 ## Rota
 
-A suíte de rota cobre cenários como:
+A suíte cobre:
 
 - Biblioteca na ida;
 - Biblioteca no retorno;
@@ -395,45 +468,59 @@ A suíte de rota cobre cenários como:
 - transição inválida;
 - ponto inexistente.
 
-Os testes da rota já passaram com sucesso.
-
 ## Testes manuais da Etapa 5
 
-Foram validados manualmente:
+Já foram validados:
 
 - confirmação de passagem;
 - tempo decorrido;
 - sentido e próximo ponto;
 - estado de viagem por horário;
 - percurso de retorno;
-- estado de provável espera na Garagem;
+- provável espera na Garagem;
 - próxima saída prevista;
 - bloqueio de passagem fora de circulação sem confirmação recente.
 
 ---
 
-# Pós-protótipo - alertas de atraso
-
-Estudar a possibilidade de o bot enviar **alertas automáticos de possível atraso** para usuários que optem por receber esse tipo de aviso.
-
-Ideia conceitual:
+# Estrutura principal
 
 ```text
-confirmação colaborativa
-        ↓
-comparação com horário esperado
-        ↓
-risco de atraso detectado
-        ↓
-alerta para usuários interessados
+Busivs-BOT/
+├── data/
+│   ├── horarios_letivo.json
+│   ├── pontos.json
+│   └── rotas.json
+│
+├── src/
+│   ├── bot.py
+│   ├── horarios.py
+│   ├── passagens.py
+│   ├── rota.py
+│   └── config.py
+│
+├── tests/
+│   ├── test_rota.py
+│   └── simular_rota.py
+│
+├── docs/
+├── CONTINUIDADE.md
+├── requirements.txt
+└── README.md
 ```
 
-Esse recurso fica pós-protótipo porque envolve decidir:
+---
+
+# Pós-protótipo - alertas de atraso
+
+Estudar alertas automáticos de possível atraso para usuários que optem por receber esse tipo de aviso.
+
+Antes de implementar, definir:
 
 - quem recebe;
 - opt-in / opt-out;
 - frequência máxima;
-- limite de confiança para gerar alerta;
+- limite de confiança;
 - prevenção de spam.
 
 ---
@@ -465,9 +552,9 @@ Etapa 11 - Avisos e alertas automáticos             ⏳ pós-protótipo
 - Micro ainda não foi implementado;
 - tempos de retorno são aproximações do protótipo;
 - confirmações reais devem continuar tendo prioridade sobre estimativas de horário;
-- Biblioteca aparece duas vezes na rota, então nunca inferir direção apenas pelo nome do ponto;
+- Biblioteca aparece duas vezes na rota;
 - NFC deverá futuramente se tornar uma fonte de confirmação mais confiável que o clique manual.
 
 ## Próximo passo recomendado
 
-Começar a **Etapa 6 - Principal + Micro**, sem adicionar infraestrutura nova antes de existir uma necessidade concreta.
+Começar a **Etapa 6 - Principal + Micro**, sem adicionar infraestrutura nova antes de existir necessidade concreta.
