@@ -5,6 +5,7 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 
 from config import TELEGRAM_BOT_TOKEN, validar_configuracao
 from horarios import listar_horarios_periodo, montar_resumo_horarios
+from rota import analisar_trecho, formatar_situacao_rota
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -12,6 +13,11 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+# Temporário: usado apenas para validar a experiência do botão "Onde está o ônibus?"
+# antes de implementarmos o registro real de passagens.
+PONTO_ANTERIOR_SIMULADO = "portao_1"
+PONTO_ATUAL_SIMULADO = "biblioteca"
 
 
 def teclado_periodos() -> InlineKeyboardMarkup:
@@ -26,6 +32,22 @@ def teclado_periodos() -> InlineKeyboardMarkup:
                 InlineKeyboardButton("🌙 Noite", callback_data="periodo_noite"),
             ],
         ]
+    )
+
+
+def montar_localizacao_simulada() -> str:
+    resultado = analisar_trecho(
+        PONTO_ANTERIOR_SIMULADO,
+        PONTO_ATUAL_SIMULADO,
+    )
+
+    situacao = formatar_situacao_rota(resultado)
+
+    return (
+        "🧪 MODO SIMULAÇÃO\n\n"
+        f"{situacao}\n\n"
+        "ℹ️ Esta localização é apenas para teste da Etapa 3. "
+        "Ainda não representa uma confirmação real de passagem."
     )
 
 
@@ -51,6 +73,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Escolha uma opção:",
         reply_markup=reply_markup,
     )
+
+
+async def onde(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    mensagem = update.effective_message
+    if mensagem:
+        await mensagem.reply_text(montar_localizacao_simulada())
+
+
+async def botao_onde(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    await query.message.reply_text(montar_localizacao_simulada())
 
 
 async def horarios(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -105,8 +139,10 @@ def criar_aplicacao() -> Application:
 
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("onde", onde))
     application.add_handler(CommandHandler("horarios", horarios))
     application.add_handler(CommandHandler("listar_horarios", comando_listar_horarios))
+    application.add_handler(CallbackQueryHandler(botao_onde, pattern="^onde$"))
     application.add_handler(CallbackQueryHandler(botao_horarios, pattern="^horarios$"))
     application.add_handler(
         CallbackQueryHandler(botao_listar_horarios, pattern="^listar_horarios$")
