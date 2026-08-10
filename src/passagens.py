@@ -7,7 +7,7 @@ from rota import carregar_pontos, carregar_rota
 
 FUSO_LOCAL = timezone(timedelta(hours=-3))
 CAMINHO_HORARIOS = Path(__file__).resolve().parent.parent / "data" / "horarios_letivo.json"
-JANELA_SAIDA_GARAGEM_MINUTOS = 35
+JANELA_SAIDA_RECENTE_MINUTOS = 45
 JANELA_CONFIRMACAO_RECENTE_MINUTOS = 30
 LIMITE_INTERVALO_BLOCO_MINUTOS = 60
 MAX_HISTORICO_REGISTROS = 20
@@ -132,11 +132,6 @@ def _registrar_no_historico(ponto_id: str, horario: datetime, telegram_id: int |
 
 
 def _resultado_com_historico(ponto_atual: str) -> dict | None:
-    """Procura a confirmação anterior mais recente que forme uma sequência válida.
-
-    Um registro incompatível não impede a nova confirmação de ser usada. Ele apenas
-    deixa de servir como base para inferir sentido/próximo ponto.
-    """
     total = len(_historico_passagens)
 
     for indice in range(total - 1, -1, -1):
@@ -213,27 +208,30 @@ def _aguardando_em_lacuna_de_bloco(agora: datetime) -> bool:
     return False
 
 
-def _ultima_saida_recente_da_garagem(agora: datetime) -> str | None:
+def _ultima_saida_oficial_recente(agora: datetime) -> dict | None:
     candidatos = []
-    for viagem in _carregar_horarios_principal():
-        if viagem.get("origem") != "Garagem":
-            continue
 
+    for viagem in _carregar_horarios_principal():
         previsto = _horario_previsto_hoje(viagem["hora"], agora)
         diferenca = agora - previsto
 
-        if timedelta(0) <= diferenca <= timedelta(minutes=JANELA_SAIDA_GARAGEM_MINUTOS):
-            candidatos.append(previsto)
+        if timedelta(0) <= diferenca <= timedelta(minutes=JANELA_SAIDA_RECENTE_MINUTOS):
+            candidatos.append((previsto, viagem))
 
     if not candidatos:
         return None
 
-    return max(candidatos).strftime("%H:%M")
+    previsto, viagem = max(candidatos, key=lambda item: item[0])
+    return {
+        "hora": viagem["hora"],
+        "origem": viagem["origem"],
+        "previsto": previsto,
+    }
 
 
 def _estimar_primeiro_registro_por_horario(ponto_id: str, agora: datetime) -> dict | None:
-    horario_garagem = _ultima_saida_recente_da_garagem(agora)
-    if horario_garagem is None:
+    saida = _ultima_saida_oficial_recente(agora)
+    if saida is None:
         return None
 
     rota = carregar_rota()
@@ -253,7 +251,8 @@ def _estimar_primeiro_registro_por_horario(ponto_id: str, agora: datetime) -> di
         return None
 
     return {
-        "horario_garagem": horario_garagem,
+        "horario_saida": saida["hora"],
+        "origem_saida": saida["origem"],
         "sentido": "RUA",
         "proximo": _proximo_da_ocorrencia(rota, indice_atual, pontos),
     }
@@ -355,7 +354,6 @@ def _formatar_movimento(resultado: dict) -> str:
         )
 
     linhas.append(f"{seta} Sentido: {sentido}")
-
     return "\n".join(linhas)
 
 
@@ -403,14 +401,20 @@ def _formatar_aguardando_saida(aguardando: dict) -> str:
 
 
 def _formatar_viagem_sem_confirmacao(viagem: dict) -> str:
-    origem = viagem["origem"]
-    hora = viagem["hora"]
-
     return (
-        f"🚌 Há uma volta prevista em andamento.\n"
-        f"🕐 Saída oficial: {hora} — {origem}\n"
+        "🚌 Há uma volta prevista em andamento.\n"
+        f"🕐 Saída oficial: {viagem['hora']} — {viagem['origem']}\n"
         "➡️ Sentido provável: RUA\n\n"
         "ℹ️ Não há confirmação recente de passagem; o ônibus pode estar adiantado ou atrasado."
+    )
+
+
+def _formatar_saida_recente_sem_confirmacao(saida: dict) -> str:
+    return (
+        "🚌 Uma saída oficial recente ainda pode estar em percurso por causa de atraso.\n"
+        f"🕐 Saída prevista: {saida['hora']} — {saida['origem']}\n"
+        "➡️ O sentido e a posição exata dependem de uma confirmação de passagem.\n\n"
+        "ℹ️ O horário oficial é apenas referência; a volta pode estar atrasada."
     )
 
 
@@ -514,6 +518,10 @@ def montar_localizacao_atual() -> str:
         if aguardando is not None:
             return _formatar_aguardando_saida(aguardando)
 
+        saida_recente = _ultima_saida_oficial_recente(agora)
+        if saida_recente is not None:
+            return _formatar_saida_recente_sem_confirmacao(saida_recente)
+
         return (
             "🚌 Ainda não há confirmação de passagem nesta sessão.\n\n"
             "Use 📍 Informar passagem para registrar quando o ônibus passar por um ponto."
@@ -554,7 +562,7 @@ def montar_localizacao_atual() -> str:
                 linhas.extend(
                     [
                         "",
-                        f"🕐 Pelo horário oficial, o ônibus deve ter saído da Garagem às {estimativa['horario_garagem']}.",
+                        f"🕐 A confirmação é compatível com uma saída oficial recente: {estimativa['horario_saida']} — {estimativa['origem_saida']}.",
                         "➡️ Sentido provável: RUA",
                     ]
                 )
@@ -579,7 +587,7 @@ def montar_localizacao_atual() -> str:
                             ]
                         )
 
-                linhas.append("ℹ️ Essa indicação usa o horário previsto, não uma confirmação de saída.")
+                linhas.append("ℹ️ O horário é apenas referência e pode haver atraso.")
             else:
                 linhas.extend(
                     [
