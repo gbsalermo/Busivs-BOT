@@ -220,9 +220,11 @@ PORTÃO 2 / TABELA
   ↓
 VOLTA EXTERNA
   ↓
-PORTÃO 1 / PRINCIPAL
+PORTÃO 1
   ↓
 RETORNO INTERNO
+  ↓
+RU
 ```
 
 Estados planejados:
@@ -258,27 +260,15 @@ Exemplos:
 - período de férias;
 - mensagens curtas de bom dia.
 
-## Estado atual do desenvolvimento
+---
 
-A base Python já foi criada e validada localmente.
+# Estado atual do desenvolvimento
 
-Estrutura principal:
+## Etapa 1 - Base do bot
 
-```text
-src/
-  bot.py
-  config.py
+**Concluída.**
 
-data/
-  pontos.json
-  rotas.json
-  horarios_letivo.json
-
-.env.example
-requirements.txt
-```
-
-Já implementado e testado:
+Já implementado e validado localmente:
 
 - configuração do token por `.env`;
 - inicialização do `python-telegram-bot`;
@@ -286,29 +276,242 @@ Já implementado e testado:
 - comando `/start`;
 - menu inicial com botões inline;
 - execução local com `run_polling()`;
-- arquivos JSON preparados para receber os dados oficiais.
+- correção dos handlers para usar `update.effective_message` quando necessário.
 
-O `/start` já foi testado no Telegram com sucesso.
+## Etapa 2 - Horários fixos do Principal
 
-Os botões do menu ainda não executam ações. Isso é intencional nesta etapa.
+**Concluída para o ônibus Principal.**
 
-## Próximo passo técnico
-
-Próxima funcionalidade planejada:
+Arquivos principais:
 
 ```text
-⏰ Próximos horários
+src/
+  bot.py
+  config.py
+  horarios.py
+
+data/
+  pontos.json
+  rotas.json
+  horarios_letivo.json
 ```
 
-Ordem imediata sugerida:
+### Funcionalidades implementadas
 
-1. validar os horários oficiais;
-2. preencher `horarios_letivo.json`;
-3. criar leitura simples do JSON;
-4. calcular próximo horário;
-5. ligar o botão `Próximos horários`;
-6. testar no Telegram.
+- comando `/horarios`;
+- comando `/listar_horarios`;
+- botão `⏰ Próximos horários`;
+- botão `📋 Listar horários`;
+- seleção de período por botões:
+  - 🌅 Manhã;
+  - 🍽️ Almoço;
+  - 🌤️ Tarde;
+  - 🌙 Noite;
+- mensagens de horário formatadas em HTML no Telegram;
+- destaque visual de origem, sentido e previsão de retorno;
+- cálculo do próximo horário com fuso UTC-3 usando apenas a biblioteca padrão;
+- Micro permanece sem horários cadastrados nesta etapa.
 
-Só depois seguir para `/local`, persistência das confirmações, previsão e NFC.
+### Regras dos períodos
 
-**Não implementar NFC antes do fluxo manual estar funcionando.**
+As categorias são atalhos de consulta e podem se sobrepor.
+
+```text
+Manhã:   até 12:20
+Almoço:  11:30 até 13:25
+Tarde:   13:00 até antes de 17:30
+Noite:   a partir de 17:30
+```
+
+A sobreposição de Almoço e Tarde é intencional para ajudar alunos que querem consultar especificamente o intervalo do RU.
+
+### Origens reais das viagens
+
+Os horários abaixo saem da **Garagem**:
+
+```text
+06:25
+09:35
+10:00
+11:30
+13:00
+15:35
+16:00
+17:30
+20:40
+21:40
+22:30
+```
+
+Os demais horários cadastrados do Principal usam **RU** como origem de serviço.
+
+### Padrão visual adotado
+
+Para RU:
+
+```text
+🍽️ 06:50  RU ➡️ RUA
+   ↪️ Retorno Portão 1: 07:05–07:10
+```
+
+Para Garagem:
+
+```text
+🅿️ 06:25  Garagem ➡️ RUA
+   ↪️ Retorno Portão 1: 06:40–06:45
+```
+
+Decisões visuais:
+
+- manter 🍽️ para RU;
+- usar 🅿️ para Garagem;
+- usar `Portão 1` em vez de `Guarita Principal`;
+- não exibir um bloco separado de `RETORNO / Origem / Sentido` no final da mensagem, porque isso pode confundir;
+- mostrar a previsão de retorno junto de cada horário.
+
+### Previsão até o Portão 1
+
+A previsão é uma **estimativa**, não GPS.
+
+#### Fluxo normal
+
+Tempo estimado do RU até o Portão 1:
+
+```text
+15 a 20 minutos
+```
+
+Casos considerados normais incluem:
+
+- 06:00 até 07:20;
+- região de 09:40 / 10:00;
+- 15:30 / 16:00;
+- a partir das 20:00, podendo levar menos tempo.
+
+#### Horário de pico
+
+Tempo estimado:
+
+```text
+20 a 25 minutos
+```
+
+Faixas usadas atualmente:
+
+```text
+07:30 até 08:00
+11:30 até 14:00
+17:30 até 18:15
+```
+
+Nos horários de pico a interface deve informar que podem ocorrer atrasos.
+
+#### Limitação atual
+
+Para viagens cuja origem oficial é `Garagem`, a previsão do Portão 1 ainda é uma aproximação baseada no horário da viagem. Quando houver dados reais de passagem pelo RU, essa estimativa poderá ser refinada.
+
+---
+
+# Próxima etapa - Pontos, rota, sentido e próximo ponto
+
+`data/pontos.json` e `data/rotas.json` ainda estão vazios. A próxima etapa deve preenchê-los apenas com a rota validada pelo usuário.
+
+## Objetivo
+
+Permitir que o bot responda algo como:
+
+```text
+📍 Último registro: Ponto Externo 2 (Canãa)
+🕐 Há 2 min
+
+⬅️ Sentido: RU
+➡️ Próximo ponto: Portão 1
+```
+
+ou:
+
+```text
+📍 Último registro: Pavilhão de Aulas I
+➡️ Sentido: Rua
+➡️ Próximo ponto: Biblioteca
+```
+
+## Regra para descobrir o sentido
+
+Não inferir o sentido apenas pelo nome do ponto, porque alguns pontos podem aparecer em mais de um trecho da rota.
+
+Usar pelo menos:
+
+```text
+ponto anterior
+ponto atual
+```
+
+Exemplos acordados:
+
+```text
+Pavilhão de Aulas I → Biblioteca
+= sentido Rua
+```
+
+```text
+Portão 1 → Biblioteca
+= sentido RU
+```
+
+```text
+Ponto Externo 2 / Canãa → Portão 1
+= sentido RU
+```
+
+Com a sequência fixa da rota será possível determinar:
+
+1. último ponto confirmado;
+2. sentido atual (`Rua` ou `RU`);
+3. próximo ponto esperado;
+4. posteriormente, ETA aproximado para o próximo ponto.
+
+## Princípio técnico para a rota
+
+Não criar algoritmo de roteamento.
+
+A solução deve ser uma sequência fixa e validada de pontos em JSON, com lógica simples de posição anterior/atual/próxima.
+
+Exemplo conceitual:
+
+```text
+ponto anterior + ponto atual
+        ↓
+identificar trecho da rota
+        ↓
+sentido atual
+        ↓
+próximo ponto
+```
+
+Isso mantém o sistema simples e também resolve ambiguidades de pontos repetidos, como Biblioteca.
+
+## Ordem imediata sugerida
+
+1. receber do usuário a ordem real dos pontos do percurso completo;
+2. preencher `pontos.json`;
+3. preencher `rotas.json`;
+4. criar função simples para descobrir sentido e próximo ponto;
+5. criar uma simulação manual antes de persistir confirmações;
+6. depois conectar essa regra ao futuro fluxo `/local`.
+
+**Ainda não implementar NFC.** Primeiro validar o fluxo manual e a lógica de rota.
+
+---
+
+## Estado resumido
+
+```text
+Etapa 1 - Base do bot                         ✅ concluída
+Etapa 2 - Horários fixos do Principal        ✅ concluída
+Etapa 3 - Pontos / rota / sentido             ⏭️ próxima
+Etapa 4 - Autenticação institucional          ⏳ futura
+Etapa 5 - Informar passagem (/local)           ⏳ futura
+Etapa 6 - ETA por confirmações                 ⏳ futura
+Etapa 7 - NFC                                  ⏳ futura
+```
