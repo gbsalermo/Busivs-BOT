@@ -119,6 +119,9 @@ def analisar_trecho(
         "ponto_anterior": pontos[ponto_anterior]["nome"],
         "ponto_atual": ponto_atual_dados["nome"],
         "ponto_atual_id": ponto_atual,
+        "ponto_atual_opcional": item_atual.get(
+            "opcional", ponto_atual_dados.get("opcional", False)
+        ),
         "sentido": item_atual["sentido_apos"],
         "proximo": _proximo_ponto(rota, indice_atual, pontos),
     }
@@ -139,8 +142,22 @@ def formatar_situacao_rota(resultado: dict | None) -> str:
     sentido = resultado["sentido"]
     seta = "➡️" if sentido == "RUA" else "⬅️"
 
+    ponto_referencia = resultado["ponto_atual"]
+    rotulo_ponto = "📍 Último ponto"
+
+    ponto_opcional = resultado.get("ponto_atual_opcional", False)
+    if not ponto_opcional:
+        ponto_opcional = resultado.get("ponto_atual") in {
+            "Pavilhão de Engenharia",
+            "Torre / COTEC",
+        }
+
+    if ponto_opcional and resultado.get("ponto_anterior"):
+        ponto_referencia = resultado["ponto_anterior"]
+        rotulo_ponto = "📍 Último ponto de referência"
+
     linhas = [
-        f"📍 Último ponto: {resultado['ponto_atual']}",
+        f"{rotulo_ponto}: {ponto_referencia}",
         f"{seta} Sentido: {sentido}",
     ]
 
