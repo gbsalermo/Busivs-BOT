@@ -100,7 +100,7 @@ async def local(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if mensagem:
         await mensagem.reply_text(
             "📍 Onde o ônibus acabou de passar?\n\n"
-            "Toque no ponto correspondente. A primeira confirmação do mesmo ponto é a que vale.",
+            "Toque no ponto correspondente.",
             reply_markup=teclado_pontos(),
         )
 
@@ -110,7 +110,7 @@ async def botao_local(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await query.answer()
     await query.message.reply_text(
         "📍 Onde o ônibus acabou de passar?\n\n"
-        "Toque no ponto correspondente. A primeira confirmação do mesmo ponto é a que vale.",
+        "Toque no ponto correspondente.",
         reply_markup=teclado_pontos(),
     )
 
@@ -127,32 +127,13 @@ async def botao_registrar_ponto(update: Update, context: ContextTypes.DEFAULT_TY
 
     if not resultado["aceito"]:
         if resultado["motivo"] == "duplicado":
-            horario = resultado.get("horario")
-            horario_texto = horario.strftime("%H:%M:%S") if horario else "--:--"
-            await query.message.reply_text(
-                f"✅ {resultado['ponto']} já foi confirmado às {horario_texto}.\n\n"
-                "A primeira confirmação continua valendo."
-            )
+            await query.message.reply_text("Obrigado pela informação 😊")
             return
 
         await query.message.reply_text("⚠️ Não consegui reconhecer esse ponto.")
         return
 
-    horario_texto = resultado["horario"].strftime("%H:%M:%S")
-
-    if resultado["primeiro_registro"]:
-        await query.message.reply_text(
-            f"✅ Passagem confirmada: {resultado['ponto']}\n"
-            f"🕐 {horario_texto}\n\n"
-            "Esse é o primeiro registro da sessão. O próximo ponto diferente ajudará a identificar o sentido."
-        )
-        return
-
-    await query.message.reply_text(
-        f"✅ Passagem confirmada: {resultado['ponto']}\n"
-        f"🕐 {horario_texto}\n\n"
-        "A localização colaborativa foi atualizada."
-    )
+    await query.message.reply_text("Valeu! Registramos o ponto 😊")
 
 
 async def horarios(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
