@@ -10,6 +10,7 @@ CAMINHO_HORARIOS = Path(__file__).resolve().parent.parent / "data" / "horarios_l
 JANELA_SAIDA_GARAGEM_MINUTOS = 35
 JANELA_CONFIRMACAO_RECENTE_MINUTOS = 30
 LIMITE_INTERVALO_BLOCO_MINUTOS = 60
+MAX_HISTORICO_REGISTROS = 20
 
 _estado = {
     "ponto_anterior": None,
@@ -18,6 +19,8 @@ _estado = {
     "telegram_id": None,
     "resultado_rota": None,
 }
+
+_historico_passagens = []
 
 
 def limpar_estado() -> None:
@@ -30,10 +33,15 @@ def limpar_estado() -> None:
             "resultado_rota": None,
         }
     )
+    _historico_passagens.clear()
 
 
 def obter_estado() -> dict:
     return _estado.copy()
+
+
+def obter_historico() -> list[dict]:
+    return [registro.copy() for registro in _historico_passagens]
 
 
 def _nome_ponto(ponto_id: str) -> str:
@@ -108,6 +116,49 @@ def _analisar_registros_esparsos(ponto_anterior: str, ponto_atual: str) -> dict 
         "sentido": item_atual["sentido_apos"],
         "proximo": _proximo_da_ocorrencia(rota, indice_atual, pontos),
     }
+
+
+def _registrar_no_historico(ponto_id: str, horario: datetime, telegram_id: int | None) -> None:
+    _historico_passagens.append(
+        {
+            "ponto_id": ponto_id,
+            "horario": horario,
+            "telegram_id": telegram_id,
+        }
+    )
+
+    if len(_historico_passagens) > MAX_HISTORICO_REGISTROS:
+        del _historico_passagens[:-MAX_HISTORICO_REGISTROS]
+
+
+def _resultado_com_historico(ponto_atual: str) -> dict | None:
+    """Procura a confirmação anterior mais recente que forme uma sequência válida.
+
+    Um registro incompatível não impede a nova confirmação de ser usada. Ele apenas
+    deixa de servir como base para inferir sentido/próximo ponto.
+    """
+    total = len(_historico_passagens)
+
+    for indice in range(total - 1, -1, -1):
+        registro = _historico_passagens[indice]
+        ponto_anterior = registro["ponto_id"]
+
+        if ponto_anterior == ponto_atual:
+            continue
+
+        resultado = _analisar_registros_esparsos(ponto_anterior, ponto_atual)
+        if resultado is None:
+            continue
+
+        resultado["base_historico"] = {
+            "ponto_id": ponto_anterior,
+            "horario": registro["horario"],
+            "telegram_id": registro["telegram_id"],
+        }
+        resultado["ignorou_registro_incompativel"] = indice != total - 1
+        return resultado
+
+    return None
 
 
 def _carregar_horarios_principal() -> list[dict]:
@@ -407,9 +458,9 @@ def registrar_passagem(ponto_id: str, telegram_id: int | None = None) -> dict:
         }
 
     anterior = _estado["ponto_atual"]
-    resultado_rota = None
+    resultado_rota = _resultado_com_historico(ponto_id)
 
-    if anterior is not None:
+    if resultado_rota is None and anterior is not None:
         resultado_rota = _analisar_registros_esparsos(anterior, ponto_id)
 
     _estado.update(
@@ -421,6 +472,7 @@ def registrar_passagem(ponto_id: str, telegram_id: int | None = None) -> dict:
             "resultado_rota": resultado_rota,
         }
     )
+    _registrar_no_historico(ponto_id, agora, telegram_id)
 
     return {
         "aceito": True,
