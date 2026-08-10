@@ -1,6 +1,18 @@
+"""Simulador manual da lógica de rota do BUSIVS BOT.
+
+Este arquivo não faz parte do processo do Telegram. Ele existe para permitir
+que um desenvolvedor percorra a rota completa, teste saltos de pontos opcionais
+ou informe manualmente dois pontos e veja como ``rota.py`` interpreta o trecho.
+
+Uso:
+    python tests/simular_rota.py
+"""
+
 from pathlib import Path
 import sys
 
+# Como o projeto ainda não é um pacote instalado, adicionamos ``src`` ao caminho
+# de importação para executar este arquivo diretamente pela pasta ``tests``.
 PASTA_RAIZ = Path(__file__).resolve().parent.parent
 PASTA_SRC = PASTA_RAIZ / "src"
 
@@ -10,6 +22,8 @@ if str(PASTA_SRC) not in sys.path:
 from rota import analisar_trecho, formatar_situacao_rota
 
 
+# Pares (ponto anterior, ponto atual) que percorrem a rota normal na ordem
+# cadastrada. Cada par representa duas confirmações consecutivas.
 CENARIOS = [
     ("ru", "fitotecnia"),
     ("fitotecnia", "solos_neas_florestal"),
@@ -27,6 +41,8 @@ CENARIOS = [
 ]
 
 
+# Casos em que o ônibus não para em um ponto opcional. A lógica deve continuar
+# reconhecendo o trecho como válido.
 CENARIOS_COM_PULO_OPCIONAL = [
     ("pavilhao_2", "portao_2"),
     ("biblioteca", "ru"),
@@ -34,6 +50,7 @@ CENARIOS_COM_PULO_OPCIONAL = [
 
 
 def _mostrar_cenario(numero: int, ponto_anterior: str, ponto_atual: str) -> None:
+    """Executa um par de pontos e imprime a interpretação da rota."""
     resultado = analisar_trecho(ponto_anterior, ponto_atual)
 
     print(f"\n--- Cenário {numero} ---")
@@ -44,6 +61,7 @@ def _mostrar_cenario(numero: int, ponto_anterior: str, ponto_atual: str) -> None
 
 
 def simular_rota_completa() -> None:
+    """Percorre todos os pares da rota normal e mostra o resultado de cada um."""
     print("\n========================================")
     print("SIMULAÇÃO MANUAL - ROTA COMPLETA")
     print("========================================")
@@ -53,6 +71,7 @@ def simular_rota_completa() -> None:
 
 
 def simular_pulos_opcionais() -> None:
+    """Executa apenas os casos em que um ponto opcional foi pulado."""
     print("\n========================================")
     print("SIMULAÇÃO - PONTOS OPCIONAIS PULADOS")
     print("========================================")
@@ -62,6 +81,7 @@ def simular_pulos_opcionais() -> None:
 
 
 def simular_interativo() -> None:
+    """Permite digitar dois IDs de ponto e consultar a inferência manualmente."""
     print("\n========================================")
     print("SIMULAÇÃO INTERATIVA")
     print("========================================")
@@ -85,6 +105,7 @@ def simular_interativo() -> None:
 
 
 def main() -> None:
+    """Exibe o menu do simulador até o usuário escolher sair."""
     while True:
         print("\n========================================")
         print("BUSIVS BOT - SIMULADOR DE ROTA")
