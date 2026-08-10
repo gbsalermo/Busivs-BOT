@@ -1,10 +1,9 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 CAMINHO_HORARIOS = Path(__file__).resolve().parent.parent / "data" / "horarios_letivo.json"
-FUSO_LOCAL = ZoneInfo("America/Bahia")
+FUSO_LOCAL = timezone(timedelta(hours=-3))
 
 
 def carregar_horarios() -> dict:
