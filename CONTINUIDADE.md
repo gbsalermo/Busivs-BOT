@@ -17,7 +17,8 @@ Antes de mexer no projeto:
 7. **Preferir soluções pequenas e compreensíveis por outros alunos.**
 8. **Não adicionar serviços, banco ou dependências sem um problema atual que justifique.**
 9. **Preservar sempre a diferença entre dado confirmado e dado estimado.**
-10. **Dados de localização são temporários: o objetivo é representar o ônibus agora, não criar histórico por padrão.**
+10. **Dados de localização são temporários: o objetivo é representar o ônibus agora, não criar histórico permanente por padrão.**
+11. **Viagens consecutivas do mesmo bloco operacional podem compartilhar contexto; uma nova saída não significa automaticamente apagar o estado.**
 
 ## Princípio principal
 
@@ -70,10 +71,10 @@ horário da confirmação
 ponto anterior
 sentido inferido
 próximo ponto
-contexto da viagem atual
+contexto do bloco operacional atual
 ```
 
-O sistema não precisa saber onde o ônibus estava dez horas atrás para responder onde ele está agora.
+O sistema não precisa saber onde o ônibus estava muitas horas atrás para responder onde ele está agora.
 
 SQL/SQLite só deve entrar quando existir necessidade real de histórico, por exemplo:
 
@@ -88,59 +89,87 @@ Até lá, **estado em memória é uma escolha intencional, não uma limitação 
 
 ---
 
-# Ciclo de vida do estado temporário
+# Ciclo de vida do estado: blocos operacionais
 
 O bot não deve ser reiniciado várias vezes ao dia apenas para apagar localização antiga.
 
-O processo pode ficar rodando 24h. Quem expira é o **estado do ônibus**.
+O processo pode ficar rodando 24h. Quem expira é o **contexto do ônibus** quando ele deixa de pertencer ao bloco operacional atual.
 
-Implementado em `src/passagens.py`:
+## Conceito
 
-```text
-1. confirmação de dia anterior
-   → estado é limpo
+Cada saída é uma volta, mas várias voltas próximas podem fazer parte do mesmo bloco de circulação.
 
-2. ônibus aguardando próxima saída
-   + confirmação sem validade recente
-   → estado é limpo
-
-3. nova viagem oficial começou
-   + confirmação pertence a uma viagem anterior
-   → estado é limpo
-
-4. dado ainda pertence à viagem atual
-   → continua sendo usado
-```
-
-A janela de confirmação recente usada atualmente é:
+Exemplo da manhã:
 
 ```text
-30 minutos
+06:25 Garagem
+↓
+06:50 RU
+↓
+07:10 RU
+↓
+07:25 RU
+↓
+07:40 RU
+↓
+07:55 RU
 ```
 
-Essa margem existe para não apagar imediatamente uma confirmação quando o ônibus pode estar apenas atrasado.
+Essas saídas são consecutivas e podem compartilhar o mesmo contexto em memória.
 
-Consequência desejada:
+Depois existe uma lacuna relevante até a retomada seguinte. Nesse ponto o contexto anterior deixa de ser útil e pode ser descartado.
+
+## Regra atual
+
+Implementada em `src/passagens.py`:
 
 ```text
-DADO REAL RECENTE
-      ↓
-usa confirmação colaborativa
+intervalo entre saídas <= 60 min
+→ mesmo bloco operacional
+→ mantém contexto
 
-DADO ENVELHECE / VIAGEM TERMINA
-      ↓
-estado expira
-
-SEM DADO REAL ÚTIL
-      ↓
-horário oficial volta a ser a referência
-
-NOVA VIAGEM
-      ↓
-começa sem carregar localização da volta anterior
+intervalo entre saídas > 60 min
+→ quebra de bloco
 ```
 
-Não é necessário agendar reinicializações às 09h, 11h, 15h etc.
+O limite atual é:
+
+```text
+LIMITE_INTERVALO_BLOCO_MINUTOS = 60
+```
+
+A quebra não apaga uma confirmação enquanto a viagem anterior ainda pode estar em andamento. A limpeza ocorre quando o sistema já entrou na lacuna operacional ou quando o próximo bloco começou.
+
+Também continua valendo:
+
+```text
+confirmação de dia anterior
+→ limpa
+```
+
+## Comportamento esperado
+
+```text
+MESMO BLOCO
+06:25 → 06:50 → 07:10 → 07:25 → 07:40 → 07:55
+→ contexto pode continuar em memória
+
+LACUNA GRANDE
+fim da circulação do bloco anterior → próxima retomada
+→ estado antigo expira
+
+NOVO BLOCO
+primeira saída após a lacuna
+→ não carrega localização do bloco anterior
+```
+
+Isso é diferente de um TTL rígido. O estado não é apagado só porque passaram 30 minutos ou porque começou uma nova saída.
+
+A janela de **30 minutos** continua existindo apenas como proteção para considerar uma confirmação recente em situações de possível atraso e no bloqueio de registros fora de circulação.
+
+Resumo da decisão:
+
+> **O histórico em memória vale enquanto ele pertence ao mesmo bloco operacional. O fim do bloco é a fronteira natural de expiração.**
 
 ---
 
@@ -181,7 +210,7 @@ Aqui ficam:
 - última confirmação;
 - tempo desde a confirmação;
 - integração entre horário e rota;
-- ciclo de vida / expiração do estado;
+- ciclo de vida por blocos operacionais;
 - proteção contra passagem fora de circulação;
 - localização apresentada ao usuário.
 
@@ -271,7 +300,7 @@ Etapa 2  - Horários fixos do Principal             ✅
 Etapa 3  - Pontos / rota / sentido / próximo ponto ✅
 Etapa 4  - Informar passagem                       ✅ protótipo
 Etapa 5  - Localização / tempo / estados / proteção ✅ protótipo validado
-Etapa 5.5- Ciclo de vida do estado                  ✅ pré-hospedagem
+Etapa 5.5- Ciclo de vida por blocos operacionais   ✅ pré-hospedagem
 ```
 
 ---
@@ -360,6 +389,8 @@ bloquear nova passagem
 
 A margem de 30 minutos preserva a possibilidade de atraso real.
 
+Essa regra de proteção é independente do tempo de vida do bloco operacional.
+
 ---
 
 # Possível atraso - regra experimental
@@ -404,27 +435,26 @@ Já foram testados com sucesso:
 - próxima saída;
 - bloqueio fora de circulação.
 
-## Ainda testar antes de hospedar
+## Últimos testes antes de hospedar
 
-Depois da implementação do ciclo de vida:
+Validar agora especificamente os blocos operacionais:
 
-1. registrar uma passagem e garantir que continua válida durante a mesma viagem;
-2. simular confirmação antiga durante `aguardando próxima saída` e verificar a limpeza;
-3. garantir que uma confirmação da viagem anterior não aparece depois do início da próxima viagem;
-4. validar que estado de dia anterior é descartado;
-5. repetir o teste de proteção contra registro fora de circulação;
-6. executar novamente `tests/test_rota.py`.
+1. registrar passagem durante o bloco `06:25 → 07:55` e confirmar que uma nova saída do mesmo bloco não apaga o contexto;
+2. confirmar que a localização ainda pode evoluir entre viagens consecutivas do mesmo bloco;
+3. entrar numa lacuna maior que 60 minutos depois da viagem anterior terminar e verificar que o estado antigo é descartado;
+4. iniciar o próximo bloco sem ter consultado o bot durante a lacuna e confirmar que o estado anterior também é descartado;
+5. validar virada de dia;
+6. repetir o bloqueio de passagem fora de circulação;
+7. rodar novamente `python -m unittest tests/test_rota.py`.
 
 ---
 
 # Pré-hospedagem
 
-Antes de escolher hospedagem, fechar somente os pontos essenciais.
-
 Checklist:
 
 ```text
-[ ] validar ciclo de vida do estado
+[ ] validar blocos operacionais em teste local
 [ ] rodar testes de rota novamente
 [ ] revisar mensagens principais do Telegram
 [ ] confirmar .env fora do Git
@@ -441,10 +471,11 @@ A hospedagem não precisa de:
 - PostgreSQL;
 - Redis;
 - frontend;
-- Docker, salvo se a plataforma escolhida realmente exigir ou simplificar;
-- reinicialização manual várias vezes por dia.
+- reinicializações programadas várias vezes ao dia;
+- persistência de localização por SQL;
+- Docker, salvo se a plataforma escolhida realmente exigir ou simplificar.
 
-O bot deve ficar online e deixar o próprio ciclo de vida descartar os dados antigos.
+O bot deve ficar online 24h e deixar o próprio ciclo operacional controlar a validade do estado.
 
 ---
 
@@ -471,10 +502,10 @@ Sugestão atual: **não começar o Micro antes de colocar o Principal online e o
 Reavaliar SQLite somente quando uma destas necessidades surgir:
 
 ```text
-histórico de passagens
+histórico de passagens de longo prazo
 métricas de uso
 tempos médios entre pontos
-estimativas treinadas com dados reais
+estimativas baseadas em dados reais
 estatísticas de atraso
 estado sobrevivendo a reinícios por necessidade funcional
 controle de abuso de longo prazo
@@ -482,4 +513,4 @@ controle de abuso de longo prazo
 
 Até lá:
 
-> **JSON guarda o que é permanente. Memória guarda o que é atual.**
+> **JSON guarda o que é permanente. Memória guarda o contexto do bloco operacional atual.**
