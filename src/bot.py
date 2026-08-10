@@ -6,7 +6,7 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 from config import TELEGRAM_BOT_TOKEN, validar_configuracao
 from horarios import listar_horarios_periodo, montar_resumo_horarios
 from passagens import montar_localizacao_atual, registrar_passagem
-from rota import carregar_pontos
+from rota import carregar_pontos, carregar_rota
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -80,6 +80,40 @@ def teclado_pontos() -> InlineKeyboardMarkup:
     linhas = [botoes[i : i + 2] for i in range(0, len(botoes), 2)]
     linhas.append([InlineKeyboardButton("⬅️ Voltar ao menu", callback_data="menu")])
     return InlineKeyboardMarkup(linhas)
+
+
+def montar_rota_atual() -> str:
+    rota = carregar_rota()
+    pontos = carregar_pontos()
+
+    linhas = [
+        "🗺️ ROTA PRINCIPAL",
+        "",
+        "➡️ Saída em direção à Rua",
+        "",
+    ]
+
+    for indice, item in enumerate(rota):
+        ponto = pontos[item["ponto_id"]]
+        nome = ROTULOS_PONTOS.get(ponto["id"], ponto["nome"])
+        opcional = item.get("opcional", ponto.get("opcional", False))
+
+        if opcional:
+            nome = f"{nome} (opcional)"
+
+        linhas.append(f"{indice + 1}. {nome}")
+
+        if item["ponto_id"] == "ponto_externo_2":
+            linhas.extend(["", "⬅️ Retorno em direção ao RU", ""])
+
+    linhas.extend(
+        [
+            "",
+            "ℹ️ Pontos opcionais só são atendidos quando houver desembarque.",
+        ]
+    )
+
+    return "\n".join(linhas)
 
 
 async def enviar_menu(mensagem) -> None:
@@ -173,6 +207,24 @@ async def botao_registrar_ponto(update: Update, context: ContextTypes.DEFAULT_TY
     )
 
 
+async def rota_atual(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    mensagem = update.effective_message
+    if mensagem:
+        await mensagem.reply_text(
+            montar_rota_atual(),
+            reply_markup=teclado_voltar_menu(),
+        )
+
+
+async def botao_rota(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    await query.message.reply_text(
+        montar_rota_atual(),
+        reply_markup=teclado_voltar_menu(),
+    )
+
+
 async def horarios(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     mensagem = update.effective_message
     if mensagem:
@@ -230,6 +282,7 @@ def criar_aplicacao() -> Application:
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("onde", onde))
     application.add_handler(CommandHandler("local", local))
+    application.add_handler(CommandHandler("rota", rota_atual))
     application.add_handler(CommandHandler("horarios", horarios))
     application.add_handler(CommandHandler("listar_horarios", comando_listar_horarios))
 
@@ -237,6 +290,7 @@ def criar_aplicacao() -> Application:
     application.add_handler(CallbackQueryHandler(botao_onde, pattern="^onde$"))
     application.add_handler(CallbackQueryHandler(botao_local, pattern="^local$"))
     application.add_handler(CallbackQueryHandler(botao_registrar_ponto, pattern="^local_"))
+    application.add_handler(CallbackQueryHandler(botao_rota, pattern="^rota$"))
     application.add_handler(CallbackQueryHandler(botao_horarios, pattern="^horarios$"))
     application.add_handler(
         CallbackQueryHandler(botao_listar_horarios, pattern="^listar_horarios$")
