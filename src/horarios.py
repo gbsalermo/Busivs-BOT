@@ -255,77 +255,11 @@ def aguardando_proxima_saida(
 
         if fim_retorno <= minutos_agora < proxima_saida:
             return {
-                "origem": _nome_origem(horario["origem"]),
+                "origem": _nome_origem(proxima["origem"]),
                 "proxima": proxima,
             }
 
     return None
-
-
-def montar_resumo_horarios(
-    veiculo: str = "principal", agora: datetime | None = None
-) -> str:
-    dados = carregar_horarios()
-    horarios = dados.get(veiculo, [])
-    nome = "Principal" if veiculo == "principal" else "Micro"
-
-    if not horarios:
-        return f"⏰ <b>{nome}</b>\n\nOs horários ainda não foram cadastrados no sistema."
-
-    agora = agora or datetime.now(FUSO_LOCAL)
-    primeiro = horarios[0]
-    ultimo = horarios[-1]
-
-    if agora.weekday() >= 5:
-        return (
-            f"🚌 <b>Circular UFRB — {nome}</b>\n\n"
-            "O Circular opera de segunda a sexta-feira.\n\n"
-            f"🕐 <b>Primeiro horário:</b> <code>{primeiro['hora']}</code>\n"
-            f"🌙 <b>Último horário:</b> <code>{ultimo['hora']}</code>"
-        )
-
-    proximo = proximo_horario(veiculo, agora)
-
-    if proximo is None:
-        return (
-            f"🚌 <b>Circular UFRB — {nome}</b>\n\n"
-            "As viagens de hoje já encerraram.\n\n"
-            f"🕐 <b>Primeiro horário:</b> <code>{primeiro['hora']}</code>\n"
-            f"🌙 <b>Último horário:</b> <code>{ultimo['hora']}</code>"
-        )
-
-    icone_periodo, nome_periodo = _periodo_por_hora(agora)
-    indice = horarios.index(proximo)
-    seguintes = horarios[indice + 1:indice + 4]
-
-    linhas = [
-        f"🚌 <b>Circular UFRB — {nome}</b>",
-        f"{icone_periodo} <b>{nome_periodo}</b>",
-        "",
-        "🟢 <b>Próxima saída</b>",
-    ]
-    linhas.extend(_formatar_viagem(proximo))
-
-    if seguintes:
-        linhas.extend(["", "📋 <b>Próximos horários</b>"])
-        for horario in seguintes:
-            previsao = estimar_chegada_portao_1(horario["hora"])
-            alerta = " ⚠️ (horário de pico)" if previsao["pico"] else ""
-            linhas.extend(
-                [
-                    f"<code>{horario['hora']}</code> · {_nome_origem(horario['origem'])} → Rua{alerta}",
-                    f"🚪 Portão 1: <code>{previsao['inicio']}</code>–<code>{previsao['fim']}</code>",
-                ]
-            )
-
-    linhas.extend(
-        [
-            "",
-            "ℹ️ <i>Os horários do Portão 1 são previsões e podem variar com trânsito, lotação e atrasos.</i>",
-        ]
-    )
-
-    return "\n".join(linhas)
 
 
 def _proxima_saida_do_periodo(
@@ -360,6 +294,76 @@ def _formatar_volta_listagem(horario: dict, numero: int) -> list[str]:
     ]
 
 
+def montar_resumo_horarios(
+    veiculo: str = "principal", agora: datetime | None = None
+) -> str:
+    dados = carregar_horarios()
+    horarios = dados.get(veiculo, [])
+    nome = "Principal" if veiculo == "principal" else "Micro"
+
+    if not horarios:
+        return f"⏰ <b>{nome}</b>\n\nOs horários ainda não foram cadastrados no sistema."
+
+    agora = agora or datetime.now(FUSO_LOCAL)
+    primeiro = horarios[0]
+    ultimo = horarios[-1]
+
+    if agora.weekday() >= 5:
+        return (
+            f"🚌 <b>Circular UFRB — {nome}</b>\n\n"
+            "O Circular opera de segunda a sexta-feira.\n\n"
+            f"🕐 <b>Primeiro horário:</b> <b>{primeiro['hora']}</b>\n"
+            f"🌙 <b>Último horário:</b> <b>{ultimo['hora']}</b>"
+        )
+
+    proximo = proximo_horario(veiculo, agora)
+
+    if proximo is None:
+        return (
+            f"🚌 <b>Circular UFRB — {nome}</b>\n\n"
+            "As viagens de hoje já encerraram.\n\n"
+            f"🕐 <b>Primeiro horário:</b> <b>{primeiro['hora']}</b>\n"
+            f"🌙 <b>Último horário:</b> <b>{ultimo['hora']}</b>"
+        )
+
+    icone_periodo, nome_periodo = _periodo_por_hora(agora)
+    indice = horarios.index(proximo)
+    proximas = horarios[indice:indice + 4]
+
+    linhas = [
+        f"🚌 <b>Circular UFRB — {nome}</b>",
+        f"{icone_periodo} <b>Próximos horários — {nome_periodo}</b>",
+        "",
+    ]
+
+    for numero, horario in enumerate(proximas, start=1):
+        if numero == 1:
+            linhas.append("🟢 <b>Próxima volta</b>")
+            previsao = estimar_chegada_portao_1(horario["hora"])
+            pico = " ⚠️ pico" if previsao["pico"] else ""
+            linhas.extend(
+                [
+                    f"  {_frase_saida_origem(horario['origem'])}: <b>{horario['hora']}</b>{pico}",
+                    f"  🚪 Chega no Portão 1: <b>{previsao['inicio']}–{previsao['fim']}</b>",
+                ]
+            )
+        else:
+            linhas.extend(_formatar_volta_listagem(horario, numero))
+
+        previsao = estimar_chegada_portao_1(horario["hora"])
+        if previsao["noturno"] and not previsao["pico"]:
+            linhas.append("  🌙 À noite pode chegar antes da estimativa.")
+
+        linhas.append("")
+
+    if any(estimar_chegada_portao_1(horario["hora"])["pico"] for horario in proximas):
+        linhas.append("⚠️ <b>Horários de pico</b> — Pode haver pequenos atrasos.")
+    else:
+        linhas.append("ℹ️ Horários do Portão 1 são previsões e podem variar.")
+
+    return "\n".join(linhas)
+
+
 def listar_horarios_periodo(periodo: str, veiculo: str = "principal") -> str:
     dados = carregar_horarios()
     horarios = dados.get(veiculo, [])
@@ -383,16 +387,8 @@ def listar_horarios_periodo(periodo: str, veiculo: str = "principal") -> str:
         linhas.append("")
 
     if any(estimar_chegada_portao_1(horario["hora"])["pico"] for horario in horarios_periodo):
-        linhas.extend(
-            [
-                "⚠️ <b>Horários de pico</b> — Pode haver pequenos atrasos.",
-            ]
-        )
+        linhas.append("⚠️ <b>Horários de pico</b> — Pode haver pequenos atrasos.")
     else:
-        linhas.extend(
-            [
-                "ℹ️ Horários do Portão 1 são previsões e podem variar.",
-            ]
-        )
+        linhas.append("ℹ️ Horários do Portão 1 são previsões e podem variar.")
 
     return "\n".join(linhas)
