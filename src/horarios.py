@@ -355,8 +355,8 @@ def _formatar_volta_listagem(horario: dict, numero: int) -> list[str]:
 
     return [
         f"<b>{numero}ª volta</b>",
-        f"  {_frase_saida_origem(horario['origem'])}: <code>{horario['hora']}</code>{pico}",
-        f"  🚪 Chega no Portão 1: <code>{previsao['inicio']}</code>–<code>{previsao['fim']}</code>",
+        f"  {_frase_saida_origem(horario['origem'])}: <b>{horario['hora']}</b>{pico}",
+        f"  🚪 Chega no Portão 1: <b>{previsao['inicio']}–{previsao['fim']}</b>",
     ]
 
 
