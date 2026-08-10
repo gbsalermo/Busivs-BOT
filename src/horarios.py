@@ -6,11 +6,13 @@ CAMINHO_HORARIOS = Path(__file__).resolve().parent.parent / "data" / "horarios_l
 FUSO_LOCAL = timezone(timedelta(hours=-3))
 
 TITULOS_PERIODOS = {
-    "manha": "🌅 Manhã",
-    "meio_dia": "🍽️ Almoço",
-    "tarde": "🌤️ Tarde",
-    "noite": "🌙 Noite",
+    "manha": "🌅 <b>Manhã</b>",
+    "meio_dia": "🍽️ <b>Almoço</b>",
+    "tarde": "🌤️ <b>Tarde</b>",
+    "noite": "🌙 <b>Noite</b>",
 }
+
+ORIGEM_RETORNO = "Guarita Principal"
 
 
 def carregar_horarios() -> dict:
@@ -21,6 +23,49 @@ def carregar_horarios() -> dict:
 def _minutos(horario: str) -> int:
     hora, minuto = map(int, horario.split(":"))
     return hora * 60 + minuto
+
+
+def _icone_origem(origem: str) -> str:
+    origem_normalizada = origem.strip().lower()
+
+    if "ru" in origem_normalizada:
+        return "🍽️"
+    if "guarita principal" in origem_normalizada:
+        return "🚪"
+    if "garagem" in origem_normalizada:
+        return "🅿️"
+
+    return "📍"
+
+
+def _sentido_por_origem(origem: str) -> str:
+    origem_normalizada = origem.strip().lower()
+
+    if "guarita principal" in origem_normalizada:
+        return "RU"
+
+    if "garagem" in origem_normalizada or "ru" in origem_normalizada:
+        return "Rua"
+
+    return "Rua"
+
+
+def _pertence_ao_periodo(hora: str, periodo: str) -> bool:
+    minutos = _minutos(hora)
+
+    if periodo == "manha":
+        return minutos <= _minutos("12:20")
+
+    if periodo == "meio_dia":
+        return _minutos("11:30") <= minutos <= _minutos("13:25")
+
+    if periodo == "tarde":
+        return _minutos("13:00") <= minutos < _minutos("17:30")
+
+    if periodo == "noite":
+        return minutos >= _minutos("17:30")
+
+    return False
 
 
 def proximo_horario(veiculo: str = "principal", agora: datetime | None = None) -> dict | None:
@@ -46,7 +91,7 @@ def montar_resumo_horarios(veiculo: str = "principal", agora: datetime | None = 
     nome = "Principal" if veiculo == "principal" else "Micro"
 
     if not horarios:
-        return f"⏰ {nome}\n\nOs horários ainda não foram cadastrados no sistema."
+        return f"⏰ <b>{nome}</b>\n\nOs horários ainda não foram cadastrados no sistema."
 
     agora = agora or datetime.now(FUSO_LOCAL)
     primeiro = horarios[0]
@@ -54,58 +99,60 @@ def montar_resumo_horarios(veiculo: str = "principal", agora: datetime | None = 
 
     if agora.weekday() >= 5:
         return (
-            f"⏰ {nome}\n\n"
+            f"🚌 <b>Circular UFRB — {nome}</b>\n\n"
             "O Circular opera de segunda a sexta-feira.\n\n"
-            f"Primeiro horário: {primeiro['hora']} - {primeiro['origem']}\n"
-            f"Último horário: {ultimo['hora']} - {ultimo['origem']}"
+            f"🕐 <b>Primeiro horário:</b> <code>{primeiro['hora']}</code>\n"
+            f"🌙 <b>Último horário:</b> <code>{ultimo['hora']}</code>"
         )
 
     proximo = proximo_horario(veiculo, agora)
 
     if proximo is None:
         return (
-            f"⏰ {nome}\n\n"
+            f"🚌 <b>Circular UFRB — {nome}</b>\n\n"
             "As viagens de hoje já encerraram.\n\n"
-            f"Primeiro horário: {primeiro['hora']} - {primeiro['origem']}\n"
-            f"Último horário: {ultimo['hora']} - {ultimo['origem']}"
+            f"🕐 <b>Primeiro horário:</b> <code>{primeiro['hora']}</code>\n"
+            f"🌙 <b>Último horário:</b> <code>{ultimo['hora']}</code>"
         )
 
     indice = horarios.index(proximo)
     depois = horarios[indice + 1] if indice + 1 < len(horarios) else None
 
-    mensagem = (
-        f"⏰ {nome}\n\n"
-        f"Próxima saída: {proximo['hora']}\n"
-        f"Saída de: {proximo['origem']}\n"
-    )
+    origem = proximo["origem"]
+    sentido = _sentido_por_origem(origem)
+
+    linhas = [
+        f"🚌 <b>Circular UFRB — {nome}</b>",
+        "",
+        "🟢 <b>PRÓXIMA SAÍDA</b>",
+        f"🕐 <code>{proximo['hora']}</code>",
+        f"{_icone_origem(origem)} <b>Origem:</b> {origem}",
+        f"🧭 <b>Sentido:</b> {sentido}",
+    ]
 
     if depois:
-        mensagem += f"\nDepois: {depois['hora']} - {depois['origem']}\n"
+        origem_depois = depois["origem"]
+        linhas.extend(
+            [
+                "",
+                "⏭️ <b>SAÍDA SEGUINTE</b>",
+                f"🕐 <code>{depois['hora']}</code>",
+                f"{_icone_origem(origem_depois)} <b>Origem:</b> {origem_depois}",
+                f"🧭 <b>Sentido:</b> {_sentido_por_origem(origem_depois)}",
+            ]
+        )
 
-    mensagem += (
-        f"\nPrimeiro horário: {primeiro['hora']}\n"
-        f"Último horário: {ultimo['hora']}"
+    linhas.extend(
+        [
+            "",
+            f"↩️ <b>Retorno:</b> {ORIGEM_RETORNO} (Portão 1) → <b>RU</b>",
+            "",
+            f"🕐 <b>Primeiro horário:</b> <code>{primeiro['hora']}</code>",
+            f"🌙 <b>Último horário:</b> <code>{ultimo['hora']}</code>",
+        ]
     )
 
-    return mensagem
-
-
-def _pertence_ao_periodo(hora: str, periodo: str) -> bool:
-    minutos = _minutos(hora)
-
-    if periodo == "manha":
-        return minutos <= _minutos("12:20")
-
-    if periodo == "meio_dia":
-        return _minutos("11:30") <= minutos <= _minutos("13:25")
-
-    if periodo == "tarde":
-        return _minutos("13:00") <= minutos < _minutos("17:30")
-
-    if periodo == "noite":
-        return minutos >= _minutos("17:30")
-
-    return False
+    return "\n".join(linhas)
 
 
 def listar_horarios_periodo(periodo: str, veiculo: str = "principal") -> str:
@@ -118,11 +165,29 @@ def listar_horarios_periodo(periodo: str, veiculo: str = "principal") -> str:
     ]
 
     if not horarios_periodo:
-        return f"📋 {nome}\n\nNenhum horário cadastrado para este período."
+        return f"📋 <b>{nome}</b>\n\nNenhum horário cadastrado para este período."
 
-    linhas = [f"{TITULOS_PERIODOS.get(periodo, periodo.title())} - {nome}", ""]
+    linhas = [
+        f"🚌 <b>Circular UFRB — {nome}</b>",
+        TITULOS_PERIODOS.get(periodo, periodo.title()),
+        "",
+        "🟢 <b>IDA</b> <i>(sentido Rua)</i>",
+    ]
 
     for horario in horarios_periodo:
-        linhas.append(f"{horario['hora']} - {horario['origem']}")
+        origem = horario["origem"]
+        linhas.append(
+            f"{_icone_origem(origem)} <code>{horario['hora']}</code>  "
+            f"{origem}  •  🧭 <b>{_sentido_por_origem(origem)}</b>"
+        )
+
+    linhas.extend(
+        [
+            "",
+            "🔴 <b>RETORNO</b> <i>(sentido RU)</i>",
+            f"🚪 <b>Origem:</b> {ORIGEM_RETORNO} (Portão 1)",
+            "🧭 <b>Sentido:</b> RU",
+        ]
+    )
 
     return "\n".join(linhas)
