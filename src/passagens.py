@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from horarios import aguardando_proxima_saida, proximo_horario, viagem_em_retorno
+from horarios import aguardando_proxima_saida, proximo_horario, viagem_em_andamento, viagem_em_retorno
 from rota import carregar_pontos, carregar_rota
 
 FUSO_LOCAL = timezone(timedelta(hours=-3))
@@ -402,6 +402,18 @@ def _formatar_aguardando_saida(aguardando: dict) -> str:
     return "\n".join(linhas)
 
 
+def _formatar_viagem_sem_confirmacao(viagem: dict) -> str:
+    origem = viagem["origem"]
+    hora = viagem["hora"]
+
+    return (
+        f"🚌 Há uma volta prevista em andamento.\n"
+        f"🕐 Saída oficial: {hora} — {origem}\n"
+        "➡️ Sentido provável: RUA\n\n"
+        "ℹ️ Não há confirmação recente de passagem; o ônibus pode estar adiantado ou atrasado."
+    )
+
+
 def _confirmacao_anterior_ao_retorno(horario: datetime | None, retorno: dict | None) -> bool:
     if horario is None or retorno is None:
         return False
@@ -487,25 +499,20 @@ def montar_localizacao_atual() -> str:
     agora = datetime.now(FUSO_LOCAL)
     _limpar_estado_se_expirado(agora)
 
+    atual = viagem_em_andamento("principal", agora)
     retorno = viagem_em_retorno("principal", agora)
     aguardando = aguardando_proxima_saida("principal", agora)
     proxima = proximo_horario("principal", agora)
 
     if _estado["ponto_atual"] is None:
+        if atual is not None:
+            return _formatar_viagem_sem_confirmacao(atual)
+
         if retorno is not None:
             return _formatar_retorno(retorno, proxima)
 
         if aguardando is not None:
             return _formatar_aguardando_saida(aguardando)
-
-        horario_garagem = _ultima_saida_recente_da_garagem(agora)
-
-        if horario_garagem is not None:
-            return (
-                f"🚌 Pelo horário oficial, o ônibus deve ter saído da Garagem às {horario_garagem}.\n"
-                "➡️ Sentido provável: RUA\n\n"
-                "ℹ️ Informação baseada apenas no horário previsto, não em confirmação real."
-            )
 
         return (
             "🚌 Ainda não há confirmação de passagem nesta sessão.\n\n"
