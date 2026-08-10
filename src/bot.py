@@ -1,9 +1,10 @@
 import logging
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
 from config import TELEGRAM_BOT_TOKEN, validar_configuracao
+from horarios import listar_horarios, montar_resumo_horarios
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -18,6 +19,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         [InlineKeyboardButton("🚌 Onde está o ônibus?", callback_data="onde")],
         [InlineKeyboardButton("📍 Informar passagem", callback_data="local")],
         [InlineKeyboardButton("⏰ Próximos horários", callback_data="horarios")],
+        [InlineKeyboardButton("📋 Listar horários", callback_data="listar_horarios")],
         [InlineKeyboardButton("🗺️ Rota atual", callback_data="rota")],
         [InlineKeyboardButton("📢 Avisos", callback_data="avisos")],
     ]
@@ -32,11 +34,37 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+async def horarios(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(montar_resumo_horarios("principal"))
+
+
+async def comando_listar_horarios(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(listar_horarios("principal"))
+
+
+async def botao_horarios(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    await query.message.reply_text(montar_resumo_horarios("principal"))
+
+
+async def botao_listar_horarios(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    await query.message.reply_text(listar_horarios("principal"))
+
+
 def criar_aplicacao() -> Application:
     validar_configuracao()
 
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("horarios", horarios))
+    application.add_handler(CommandHandler("listar_horarios", comando_listar_horarios))
+    application.add_handler(CallbackQueryHandler(botao_horarios, pattern="^horarios$"))
+    application.add_handler(
+        CallbackQueryHandler(botao_listar_horarios, pattern="^listar_horarios$")
+    )
 
     return application
 
