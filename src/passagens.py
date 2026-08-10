@@ -2,7 +2,8 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from rota import carregar_pontos, carregar_rota, formatar_situacao_rota
+from horarios import aguardando_proxima_saida, proximo_horario, viagem_em_retorno
+from rota import carregar_pontos, carregar_rota
 
 FUSO_LOCAL = timezone(timedelta(hours=-3))
 CAMINHO_HORARIOS = Path(__file__).resolve().parent.parent / "data" / "horarios_letivo.json"
@@ -100,6 +101,8 @@ def _analisar_registros_esparsos(ponto_anterior: str, ponto_atual: str) -> dict 
     return {
         "ponto_anterior": pontos[ponto_anterior]["nome"],
         "ponto_atual": pontos[ponto_atual]["nome"],
+        "ponto_atual_id": ponto_atual,
+        "indice_atual": indice_atual,
         "sentido": item_atual["sentido_apos"],
         "proximo": _proximo_da_ocorrencia(rota, indice_atual, pontos),
     }
@@ -139,8 +142,6 @@ def _estimar_primeiro_registro_por_horario(ponto_id: str, agora: datetime) -> di
     if not ocorrencias:
         return None
 
-    # Uma saída da Garagem inicia o percurso em direção à rua.
-    # Para pontos repetidos, como Biblioteca e RU, usamos a ocorrência da ida.
     indice_atual = None
     for indice in ocorrencias:
         if rota[indice]["sentido_apos"] == "RUA":
@@ -180,20 +181,104 @@ def _tempo_desde_confirmacao(horario: datetime | None, agora: datetime | None = 
     return f"há {horas}h {minutos_restantes}min"
 
 
+def _formatar_movimento(resultado: dict) -> str:
+    sentido = resultado.get("sentido")
+    proximo = resultado.get("proximo")
+    seta = "➡️" if sentido == "RUA" else "⬅️"
+
+    linhas = []
+
+    if proximo is None:
+        linhas.append("🏁 Fim do percurso cadastrado.")
+        linhas.append(f"{seta} Sentido: {sentido}")
+        return "\n".join(linhas)
+
+    if proximo["opcional"]:
+        linhas.extend(
+            [
+                "⏭️ Próximo:",
+                f"     📍 {proximo['nome']} (se houver parada)",
+            ]
+        )
+        alternativa = proximo.get("alternativa")
+        if alternativa:
+            linhas.append(f"     ↪️ Caso não pare: {alternativa['nome']}")
+    else:
+        linhas.extend(
+            [
+                "⏭️ Próximo:",
+                f"     📍 {proximo['nome']}",
+            ]
+        )
+
+    linhas.append(f"{seta} Sentido: {sentido}")
+
+    return "\n".join(linhas)
+
+
+def _formatar_retorno(retorno: dict, proxima: dict | None) -> str:
+    linhas = [
+        "↩️ Percurso de retorno",
+        "🚌 Pelo horário, o ônibus provavelmente está no percurso de retorno.",
+        f"⬅️ Sentido: {retorno['origem']}",
+        "📍 O ônibus ainda segue atendendo pontos durante esse percurso.",
+    ]
+
+    if proxima is not None:
+        linhas.extend(
+            [
+                "",
+                "⏰ Próxima volta prevista:",
+                f"     🕐 {proxima['hora']} — {proxima['origem']}",
+            ]
+        )
+
+    linhas.append("ℹ️ Situação estimada pelo horário, não por confirmação de passagem.")
+    return "\n".join(linhas)
+
+
+def _formatar_aguardando_saida(aguardando: dict) -> str:
+    proxima = aguardando.get("proxima")
+    origem = aguardando["origem"]
+
+    linhas = [
+        f"🅿️ Provavelmente na {origem}" if origem == "Garagem" else f"📍 Provavelmente no {origem}",
+        "🚌 Pelo horário, o ônibus provavelmente já concluiu o percurso anterior.",
+    ]
+
+    if proxima is not None:
+        linhas.extend(
+            [
+                "",
+                "⏰ Próxima saída prevista:",
+                f"     🕐 {proxima['hora']} — {proxima['origem']}",
+            ]
+        )
+
+    linhas.append("ℹ️ Situação estimada pelo horário, sem confirmação recente de passagem.")
+    return "\n".join(linhas)
+
+
+def _confirmacao_anterior_ao_retorno(horario: datetime | None, retorno: dict | None) -> bool:
+    if horario is None or retorno is None:
+        return False
+
+    hora, minuto = map(int, retorno["inicio_retorno"].split(":"))
+    inicio_retorno = horario.replace(hour=hora, minute=minuto, second=0, microsecond=0)
+    return horario < inicio_retorno
+
+
 def _possivel_atraso_portao_1(
     ponto_id: str,
     horario_confirmacao: datetime | None,
     resultado_rota: dict | None,
 ) -> bool:
-    """Primeira regra experimental de atraso: apenas Portão 1 às 10:20."""
     if horario_confirmacao is None:
         return False
 
     if ponto_id not in {"biblioteca", "pavilhao_2"}:
         return False
 
-    # Biblioteca também aparece no retorno. Se já sabemos que o sentido é RU,
-    # não devemos interpretar esse registro como risco de atraso no Portão 1.
     if resultado_rota is not None and resultado_rota.get("sentido") != "RUA":
         return False
 
@@ -244,17 +329,25 @@ def registrar_passagem(ponto_id: str, telegram_id: int | None = None) -> dict:
 
 
 def montar_localizacao_atual() -> str:
+    agora = datetime.now(FUSO_LOCAL)
+    retorno = viagem_em_retorno("principal", agora)
+    aguardando = aguardando_proxima_saida("principal", agora)
+    proxima = proximo_horario("principal", agora)
+
     if _estado["ponto_atual"] is None:
-        agora = datetime.now(FUSO_LOCAL)
+        if retorno is not None:
+            return _formatar_retorno(retorno, proxima)
+
+        if aguardando is not None:
+            return _formatar_aguardando_saida(aguardando)
+
         horario_garagem = _ultima_saida_recente_da_garagem(agora)
 
         if horario_garagem is not None:
             return (
-                "🚌 Ainda não há confirmação de passagem.\n\n"
-                f"🕐 Pelo horário oficial, o ônibus deve ter saído da Garagem às {horario_garagem}.\n"
-                "➡️ Sentido provável: RUA\n"
-                "📍 Próxima confirmação esperada: RU / Residências\n\n"
-                "ℹ️ Essa informação é baseada apenas no horário previsto, não em uma confirmação real."
+                f"🚌 Pelo horário oficial, o ônibus deve ter saído da Garagem às {horario_garagem}.\n"
+                "➡️ Sentido provável: RUA\n\n"
+                "ℹ️ Informação baseada apenas no horário previsto, não em confirmação real."
             )
 
         return (
@@ -264,7 +357,7 @@ def montar_localizacao_atual() -> str:
 
     horario = _estado["horario"]
     horario_texto = horario.strftime("%H:%M:%S") if horario else "--:--"
-    tempo_texto = _tempo_desde_confirmacao(horario)
+    tempo_texto = _tempo_desde_confirmacao(horario, agora)
     ponto_id = _estado["ponto_atual"]
     ponto_nome = _nome_ponto(ponto_id)
     resultado = _estado["resultado_rota"]
@@ -274,50 +367,63 @@ def montar_localizacao_atual() -> str:
         f"🕐 {tempo_texto} ({horario_texto})",
     ]
 
-    if _possivel_atraso_portao_1(ponto_id, horario, resultado):
-        linhas.extend(
-            [
-                "",
-                "⚠️ Possível atraso no Portão 1",
-                "🚪 Passagem esperada por volta de 10:20.",
-                f"📍 O último registro ainda está em {ponto_nome}.",
-                "ℹ️ É uma estimativa, não uma confirmação de atraso.",
-            ]
-        )
-
-    if resultado is not None:
-        linhas.extend(["", formatar_situacao_rota(resultado)])
+    if retorno is not None and _confirmacao_anterior_ao_retorno(horario, retorno):
+        linhas.extend(["", _formatar_retorno(retorno, proxima)])
     else:
-        estimativa = _estimar_primeiro_registro_por_horario(ponto_id, horario)
-
-        if estimativa is not None:
+        if _possivel_atraso_portao_1(ponto_id, horario, resultado):
             linhas.extend(
                 [
                     "",
-                    f"🕐 Pelo horário oficial, o ônibus deve ter saído da Garagem às {estimativa['horario_garagem']}.",
-                    "➡️ Sentido provável: RUA",
+                    "⚠️ Possível atraso no Portão 1",
+                    "🚪 Passagem esperada por volta de 10:20.",
+                    f"📍 O ônibus ainda foi confirmado em {ponto_nome}.",
+                    "ℹ️ É uma estimativa, não uma confirmação de atraso.",
                 ]
             )
 
-            proximo = estimativa.get("proximo")
-            if proximo:
-                if proximo["opcional"]:
-                    linhas.append(f"⏭️ Próximo esperado: {proximo['nome']} (se houver parada)")
-                    alternativa = proximo.get("alternativa")
-                    if alternativa:
-                        linhas.append(f"↪️ Caso não pare: {alternativa['nome']}")
-                else:
-                    linhas.append(f"⏭️ Próximo esperado: {proximo['nome']}")
-
-            linhas.append("ℹ️ Essa indicação usa o horário previsto, não uma confirmação de saída.")
+        if resultado is not None:
+            linhas.extend(["", _formatar_movimento(resultado)])
         else:
-            linhas.extend(
-                [
-                    "",
-                    "ℹ️ Ainda preciso de outra confirmação em um ponto diferente",
-                    "para estimar o sentido e o próximo ponto.",
-                ]
-            )
+            estimativa = _estimar_primeiro_registro_por_horario(ponto_id, horario)
+
+            if estimativa is not None:
+                linhas.extend(
+                    [
+                        "",
+                        f"🕐 Pelo horário oficial, o ônibus deve ter saído da Garagem às {estimativa['horario_garagem']}.",
+                        "➡️ Sentido provável: RUA",
+                    ]
+                )
+
+                proximo = estimativa.get("proximo")
+                if proximo:
+                    if proximo["opcional"]:
+                        linhas.extend(
+                            [
+                                "⏭️ Próximo esperado:",
+                                f"     📍 {proximo['nome']} (se houver parada)",
+                            ]
+                        )
+                        alternativa = proximo.get("alternativa")
+                        if alternativa:
+                            linhas.append(f"     ↪️ Caso não pare: {alternativa['nome']}")
+                    else:
+                        linhas.extend(
+                            [
+                                "⏭️ Próximo esperado:",
+                                f"     📍 {proximo['nome']}",
+                            ]
+                        )
+
+                linhas.append("ℹ️ Essa indicação usa o horário previsto, não uma confirmação de saída.")
+            else:
+                linhas.extend(
+                    [
+                        "",
+                        "ℹ️ Ainda preciso de outra confirmação em um ponto diferente",
+                        "para estimar o sentido e o próximo ponto.",
+                    ]
+                )
 
     linhas.extend(
         [
