@@ -1,1 +1,74 @@
-[]
+[
+  {
+    "id": "ru",
+    "nome": "RU / Residências",
+    "apelidos": ["RU", "Residências"],
+    "opcional": false
+  },
+  {
+    "id": "fitotecnia",
+    "nome": "Fitotecnia",
+    "apelidos": [],
+    "opcional": false
+  },
+  {
+    "id": "solos_neas_florestal",
+    "nome": "Prédio de Solos / NEAS / Eng. Florestal",
+    "apelidos": ["Solos", "NEAS", "Engenharia Florestal"],
+    "opcional": false
+  },
+  {
+    "id": "pavilhao_1",
+    "nome": "Pavilhão de Aulas I",
+    "apelidos": ["Pavilhão 1", "PAV I"],
+    "opcional": false
+  },
+  {
+    "id": "biblioteca",
+    "nome": "Biblioteca",
+    "apelidos": [],
+    "opcional": false
+  },
+  {
+    "id": "pavilhao_2",
+    "nome": "Pavilhão de Aulas II",
+    "apelidos": ["Pavilhão 2", "PAV II"],
+    "opcional": false
+  },
+  {
+    "id": "pavilhao_engenharia",
+    "nome": "Pavilhão de Engenharia",
+    "apelidos": ["Engenharia"],
+    "opcional": true
+  },
+  {
+    "id": "portao_2",
+    "nome": "Portão 2 / Tabela",
+    "apelidos": ["Portão 2", "Tabela"],
+    "opcional": false
+  },
+  {
+    "id": "ponto_externo_1",
+    "nome": "Ponto Externo I / Alex",
+    "apelidos": ["Ponto Externo 1", "Alex"],
+    "opcional": false
+  },
+  {
+    "id": "ponto_externo_2",
+    "nome": "Ponto Externo II / Canãa",
+    "apelidos": ["Ponto Externo 2", "Canãa", "Canaa"],
+    "opcional": false
+  },
+  {
+    "id": "portao_1",
+    "nome": "Portão 1",
+    "apelidos": ["Portão Principal"],
+    "opcional": false
+  },
+  {
+    "id": "torre_cotec",
+    "nome": "Torre / COTEC",
+    "apelidos": ["Torre", "COTEC"],
+    "opcional": true
+  }
+]
