@@ -12,8 +12,6 @@ TITULOS_PERIODOS = {
     "noite": "🌙 <b>Noite</b>",
 }
 
-ORIGEM_RETORNO = "Portão 1"
-
 
 def carregar_horarios() -> dict:
     with CAMINHO_HORARIOS.open("r", encoding="utf-8") as arquivo:
@@ -32,26 +30,28 @@ def _formatar_minutos(total_minutos: int) -> str:
     return f"{hora:02d}:{minuto:02d}"
 
 
+def _nome_origem(origem: str) -> str:
+    origem_normalizada = origem.strip().lower()
+
+    if "ru" in origem_normalizada:
+        return "RU"
+    if "garagem" in origem_normalizada:
+        return "Garagem"
+
+    return origem
+
+
 def _icone_origem(origem: str) -> str:
     origem_normalizada = origem.strip().lower()
 
     if "ru" in origem_normalizada:
         return "🍽️"
-    if "portão 1" in origem_normalizada or "portao 1" in origem_normalizada:
-        return "🚪"
     if "garagem" in origem_normalizada:
         return "🅿️"
+    if "portão 1" in origem_normalizada or "portao 1" in origem_normalizada:
+        return "🚪"
 
     return "📍"
-
-
-def _sentido_por_origem(origem: str) -> str:
-    origem_normalizada = origem.strip().lower()
-
-    if "portão 1" in origem_normalizada or "portao 1" in origem_normalizada:
-        return "RU"
-
-    return "Rua"
 
 
 def _pertence_ao_periodo(hora: str, periodo: str) -> bool:
@@ -86,12 +86,8 @@ def estimar_chegada_portao_1(hora_saida: str) -> dict:
     minutos_saida = _minutos(hora_saida)
     pico = _eh_horario_pico(hora_saida)
 
-    if pico:
-        minimo = 20
-        maximo = 25
-    else:
-        minimo = 15
-        maximo = 20
+    minimo = 20 if pico else 15
+    maximo = 25 if pico else 20
 
     return {
         "inicio": _formatar_minutos(minutos_saida + minimo),
@@ -101,18 +97,21 @@ def estimar_chegada_portao_1(hora_saida: str) -> dict:
     }
 
 
-def _linhas_previsao_portao_1(hora_saida: str) -> list[str]:
-    previsao = estimar_chegada_portao_1(hora_saida)
+def _formatar_viagem(horario: dict) -> list[str]:
+    hora = horario["hora"]
+    origem = horario["origem"]
+    nome_origem = _nome_origem(origem)
+    previsao = estimar_chegada_portao_1(hora)
 
     linhas = [
-        f"🚪 <b>Previsão no Portão 1:</b> "
-        f"<code>{previsao['inicio']}</code>–<code>{previsao['fim']}</code>"
+        f"{_icone_origem(origem)} <code>{hora}</code>  {nome_origem} ➡️ <b>RUA</b>",
+        f"   ↪️ Retorno Portão 1: <code>{previsao['inicio']}</code>–<code>{previsao['fim']}</code>",
     ]
 
     if previsao["pico"]:
-        linhas.append("⚠️ <i>Horário de pico: pode haver atrasos.</i>")
+        linhas.append("   ⚠️ <i>Horário de pico — pode haver atraso.</i>")
     elif previsao["noturno"]:
-        linhas.append("🌙 <i>À noite o trajeto pode levar menos tempo.</i>")
+        linhas.append("   🌙 <i>À noite pode chegar antes da estimativa.</i>")
 
     return linhas
 
@@ -167,41 +166,21 @@ def montar_resumo_horarios(veiculo: str = "principal", agora: datetime | None = 
     indice = horarios.index(proximo)
     depois = horarios[indice + 1] if indice + 1 < len(horarios) else None
 
-    origem = proximo["origem"]
-    sentido = _sentido_por_origem(origem)
-
     linhas = [
         f"🚌 <b>Circular UFRB — {nome}</b>",
         "",
-        "🟢 <b>PRÓXIMA SAÍDA</b>",
-        f"🕐 <code>{proximo['hora']}</code>",
-        f"{_icone_origem(origem)} <b>Origem:</b> {origem}",
-        f"🧭 <b>Sentido:</b> {sentido}",
+        "🟢 <b>PRÓXIMA VIAGEM</b>",
     ]
-    linhas.extend(_linhas_previsao_portao_1(proximo["hora"]))
+    linhas.extend(_formatar_viagem(proximo))
 
     if depois:
-        origem_depois = depois["origem"]
-        linhas.extend(
-            [
-                "",
-                "⏭️ <b>SAÍDA SEGUINTE</b>",
-                f"🕐 <code>{depois['hora']}</code>",
-                f"{_icone_origem(origem_depois)} <b>Origem:</b> {origem_depois}",
-                f"🧭 <b>Sentido:</b> {_sentido_por_origem(origem_depois)}",
-            ]
-        )
-        linhas.extend(_linhas_previsao_portao_1(depois["hora"]))
+        linhas.extend(["", "⏭️ <b>VIAGEM SEGUINTE</b>"])
+        linhas.extend(_formatar_viagem(depois))
 
     linhas.extend(
         [
             "",
-            f"↩️ <b>Retorno:</b> {ORIGEM_RETORNO} → <b>RU</b>",
-            "",
-            "ℹ️ <i>As previsões são estimativas baseadas no tempo médio do trajeto e podem variar.</i>",
-            "",
-            f"🕐 <b>Primeiro horário:</b> <code>{primeiro['hora']}</code>",
-            f"🌙 <b>Último horário:</b> <code>{ultimo['hora']}</code>",
+            "ℹ️ <i>Horários do Portão 1 são previsões e podem variar com trânsito e lotação.</i>",
         ]
     )
 
@@ -224,34 +203,14 @@ def listar_horarios_periodo(periodo: str, veiculo: str = "principal") -> str:
         f"🚌 <b>Circular UFRB — {nome}</b>",
         TITULOS_PERIODOS.get(periodo, periodo.title()),
         "",
-        "🟢 <b>SAÍDA DO RU</b> <i>(sentido Rua)</i>",
-        "",
     ]
 
     for horario in horarios_periodo:
-        previsao = estimar_chegada_portao_1(horario["hora"])
-        indicador = "⚠️" if previsao["pico"] else "🚪"
-
-        linhas.append(
-            f"🍽️ <code>{horario['hora']}</code>  RU → Rua\n"
-            f"   {indicador} Portão 1: <code>{previsao['inicio']}</code>–<code>{previsao['fim']}</code>"
-        )
-
-        if previsao["pico"]:
-            linhas.append("   <i>Horário de pico — pode atrasar.</i>")
-        elif previsao["noturno"]:
-            linhas.append("   <i>À noite pode chegar antes da estimativa.</i>")
-
+        linhas.extend(_formatar_viagem(horario))
         linhas.append("")
 
-    linhas.extend(
-        [
-            "🔴 <b>RETORNO</b> <i>(sentido RU)</i>",
-            f"🚪 <b>Origem:</b> {ORIGEM_RETORNO}",
-            "🧭 <b>Sentido:</b> RU",
-            "",
-            "ℹ️ <i>Previsões aproximadas; trânsito e lotação podem alterar o tempo.</i>",
-        ]
+    linhas.append(
+        "ℹ️ <i>Retorno no Portão 1 é uma previsão aproximada e pode variar.</i>"
     )
 
     return "\n".join(linhas)
