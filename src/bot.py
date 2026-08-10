@@ -4,7 +4,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
 from config import TELEGRAM_BOT_TOKEN, validar_configuracao
-from horarios import listar_horarios, montar_resumo_horarios
+from horarios import listar_horarios_periodo, montar_resumo_horarios
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -12,6 +12,21 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+
+def teclado_periodos() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("🌅 Manhã", callback_data="periodo_manha"),
+                InlineKeyboardButton("🍽️ Almoço", callback_data="periodo_meio_dia"),
+            ],
+            [
+                InlineKeyboardButton("🌤️ Tarde", callback_data="periodo_tarde"),
+                InlineKeyboardButton("🌙 Noite", callback_data="periodo_noite"),
+            ],
+        ]
+    )
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -25,8 +40,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     ]
 
     reply_markup = InlineKeyboardMarkup(keyboard)
+    mensagem = update.effective_message
 
-    await update.message.reply_text(
+    if mensagem is None:
+        return
+
+    await mensagem.reply_text(
         "🚌 BUSIVS BOT\n\n"
         "Acompanhe o circular da UFRB de forma colaborativa.\n\n"
         "Escolha uma opção:",
@@ -35,11 +54,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def horarios(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(montar_resumo_horarios("principal"))
+    mensagem = update.effective_message
+    if mensagem:
+        await mensagem.reply_text(montar_resumo_horarios("principal"))
 
 
 async def comando_listar_horarios(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(listar_horarios("principal"))
+    mensagem = update.effective_message
+    if mensagem:
+        await mensagem.reply_text(
+            "📋 Qual período você quer consultar?",
+            reply_markup=teclado_periodos(),
+        )
 
 
 async def botao_horarios(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -51,7 +77,18 @@ async def botao_horarios(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def botao_listar_horarios(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
-    await query.message.reply_text(listar_horarios("principal"))
+    await query.message.reply_text(
+        "📋 Qual período você quer consultar?",
+        reply_markup=teclado_periodos(),
+    )
+
+
+async def botao_periodo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    periodo = query.data.replace("periodo_", "", 1)
+    await query.message.reply_text(listar_horarios_periodo(periodo, "principal"))
 
 
 def criar_aplicacao() -> Application:
@@ -64,6 +101,9 @@ def criar_aplicacao() -> Application:
     application.add_handler(CallbackQueryHandler(botao_horarios, pattern="^horarios$"))
     application.add_handler(
         CallbackQueryHandler(botao_listar_horarios, pattern="^listar_horarios$")
+    )
+    application.add_handler(
+        CallbackQueryHandler(botao_periodo, pattern="^periodo_")
     )
 
     return application
