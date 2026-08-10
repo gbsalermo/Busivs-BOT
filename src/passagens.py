@@ -2,7 +2,12 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from horarios import aguardando_proxima_saida, proximo_horario, viagem_em_retorno
+from horarios import (
+    aguardando_proxima_saida,
+    proximo_horario,
+    viagem_em_andamento,
+    viagem_em_retorno,
+)
 from rota import carregar_pontos, carregar_rota
 
 FUSO_LOCAL = timezone(timedelta(hours=-3))
@@ -191,6 +196,43 @@ def _tem_confirmacao_recente(agora: datetime) -> bool:
     return timedelta(0) <= diferenca <= timedelta(minutes=JANELA_CONFIRMACAO_RECENTE_MINUTOS)
 
 
+def _horario_previsto_hoje(hora_texto: str, agora: datetime) -> datetime:
+    hora, minuto = map(int, hora_texto.split(":"))
+    return agora.replace(hour=hora, minute=minuto, second=0, microsecond=0)
+
+
+def _estado_expirou(agora: datetime) -> bool:
+    horario = _estado["horario"]
+    if horario is None:
+        return False
+
+    if horario.date() != agora.date():
+        return True
+
+    aguardando = aguardando_proxima_saida("principal", agora)
+    if aguardando is not None and not _tem_confirmacao_recente(agora):
+        return True
+
+    viagem_atual = viagem_em_andamento("principal", agora)
+    if viagem_atual is not None:
+        inicio = _horario_previsto_hoje(viagem_atual["hora"], agora)
+        if horario < inicio:
+            return True
+
+    retorno = viagem_em_retorno("principal", agora)
+    if retorno is not None:
+        inicio = _horario_previsto_hoje(retorno["viagem"]["hora"], agora)
+        if horario < inicio:
+            return True
+
+    return False
+
+
+def _limpar_estado_se_expirado(agora: datetime) -> None:
+    if _estado_expirou(agora):
+        limpar_estado()
+
+
 def _formatar_movimento(resultado: dict) -> str:
     sentido = resultado.get("sentido")
     proximo = resultado.get("proximo")
@@ -305,6 +347,7 @@ def registrar_passagem(ponto_id: str, telegram_id: int | None = None) -> dict:
         return {"aceito": False, "motivo": "ponto_invalido"}
 
     agora = datetime.now(FUSO_LOCAL)
+    _limpar_estado_se_expirado(agora)
     aguardando = aguardando_proxima_saida("principal", agora)
 
     if aguardando is not None and not _tem_confirmacao_recente(agora):
@@ -350,6 +393,8 @@ def registrar_passagem(ponto_id: str, telegram_id: int | None = None) -> dict:
 
 def montar_localizacao_atual() -> str:
     agora = datetime.now(FUSO_LOCAL)
+    _limpar_estado_se_expirado(agora)
+
     retorno = viagem_em_retorno("principal", agora)
     aguardando = aguardando_proxima_saida("principal", agora)
     proxima = proximo_horario("principal", agora)
@@ -448,7 +493,7 @@ def montar_localizacao_atual() -> str:
     linhas.extend(
         [
             "",
-            "🧪 Dados temporários desta Etapa 5. Eles são apagados ao reiniciar o bot.",
+            "🧪 Dados temporários desta Etapa 5. Eles expiram quando deixam de representar a viagem atual.",
         ]
     )
 
