@@ -1,11 +1,30 @@
+"""Leitura e interpretação da rota física do Circular UFRB.
+
+Este módulo trabalha somente com a estrutura da rota: pontos, ordem de
+passagem, pontos opcionais, sentido e próximo ponto esperado. Ele não guarda
+estado do ônibus e não usa horário oficial; essas responsabilidades ficam em
+``passagens.py`` e ``horarios.py``.
+
+A principal dificuldade da rota é que alguns pontos aparecem mais de uma vez
+(ex.: Biblioteca e RU) e alguns podem ser pulados. Por isso o sentido nunca é
+inferido apenas pelo nome do ponto atual: o ponto anterior também é usado.
+"""
+
 import json
 from pathlib import Path
 
+# Arquivos de dados permanentes. Alterações de pontos ou sequência devem ser
+# feitas nos JSONs, sem espalhar a rota diretamente pelo código.
 CAMINHO_PONTOS = Path(__file__).resolve().parent.parent / "data" / "pontos.json"
 CAMINHO_ROTAS = Path(__file__).resolve().parent.parent / "data" / "rotas.json"
 
 
 def carregar_pontos() -> dict[str, dict]:
+    """Carrega os pontos cadastrados e indexa cada um pelo seu ``id``.
+
+    O JSON armazena uma lista. O dicionário retornado facilita buscas como
+    ``pontos['biblioteca']`` sem percorrer a lista inteira a cada consulta.
+    """
     with CAMINHO_PONTOS.open("r", encoding="utf-8") as arquivo:
         pontos = json.load(arquivo)
 
@@ -13,6 +32,14 @@ def carregar_pontos() -> dict[str, dict]:
 
 
 def carregar_rota(nome_rota: str = "principal_normal") -> list[dict]:
+    """Carrega a sequência de uma rota pelo nome.
+
+    Args:
+        nome_rota: chave existente em ``data/rotas.json``.
+
+    Returns:
+        Lista ordenada dos pontos da rota ou lista vazia quando ela não existe.
+    """
     with CAMINHO_ROTAS.open("r", encoding="utf-8") as arquivo:
         rotas = json.load(arquivo)
 
@@ -20,12 +47,14 @@ def carregar_rota(nome_rota: str = "principal_normal") -> list[dict]:
 
 
 def _predecessores_validos(rota: list[dict], indice_atual: int) -> set[str]:
-    """
-    Retorna os pontos que podem aparecer como registro anterior ao ponto atual.
+    """Descobre quais pontos podem preceder a ocorrência atual da rota.
 
-    Pontos opcionais podem ser pulados. Exemplo:
-    Pavilhão II -> Portão 2 é válido caso não haja parada no
-    Pavilhão de Engenharia.
+    O ponto imediatamente anterior é sempre aceito. Se houver pontos opcionais
+    antes da posição atual, eles podem ter sido pulados; por isso a busca volta
+    até encontrar o primeiro ponto obrigatório.
+
+    Exemplo: ``Pavilhão II -> Portão 2`` continua válido quando o Pavilhão de
+    Engenharia, que é opcional, não foi atendido.
     """
     predecessores = set()
     indice = indice_atual - 1
@@ -34,6 +63,8 @@ def _predecessores_validos(rota: list[dict], indice_atual: int) -> set[str]:
         item = rota[indice]
         predecessores.add(item["ponto_id"])
 
+        # Ao chegar a um ponto obrigatório, não faz sentido continuar voltando:
+        # ele delimita o trecho válido anterior à ocorrência atual.
         if not item.get("opcional", False):
             break
 
@@ -45,7 +76,11 @@ def _predecessores_validos(rota: list[dict], indice_atual: int) -> set[str]:
 def _encontrar_indice_atual(
     rota: list[dict], ponto_anterior: str, ponto_atual: str
 ) -> int | None:
-    """Localiza a ocorrência correta do ponto atual usando o ponto anterior."""
+    """Localiza qual ocorrência do ponto atual combina com o ponto anterior.
+
+    Isso resolve pontos repetidos na rota. A Biblioteca, por exemplo, pode ser
+    a da ida ou a da volta; o predecessor indica qual ocorrência é a correta.
+    """
     for indice, item in enumerate(rota):
         if item["ponto_id"] != ponto_atual:
             continue
@@ -56,7 +91,15 @@ def _encontrar_indice_atual(
     return None
 
 
-def _proximo_ponto(rota: list[dict], indice_atual: int, pontos: dict[str, dict]) -> dict | None:
+def _proximo_ponto(
+    rota: list[dict], indice_atual: int, pontos: dict[str, dict]
+) -> dict | None:
+    """Monta os dados do próximo ponto depois da ocorrência atual.
+
+    Quando o próximo ponto é opcional, também informa a primeira alternativa
+    obrigatória seguinte. Assim a interface pode exibir tanto "se houver
+    parada" quanto "caso não pare".
+    """
     indice_proximo = indice_atual + 1
 
     if indice_proximo >= len(rota):
@@ -74,6 +117,8 @@ def _proximo_ponto(rota: list[dict], indice_atual: int, pontos: dict[str, dict])
     if resultado["opcional"]:
         indice_alternativo = indice_proximo + 1
 
+        # Pode haver mais de um opcional em sequência; procura o próximo ponto
+        # obrigatório para oferecer uma referência segura ao usuário.
         while indice_alternativo < len(rota):
             item_alternativo = rota[indice_alternativo]
 
@@ -95,11 +140,20 @@ def analisar_trecho(
     ponto_atual: str,
     nome_rota: str = "principal_normal",
 ) -> dict | None:
-    """
-    Descobre o sentido e o próximo ponto esperado a partir das duas
-    últimas confirmações de passagem.
+    """Infere sentido e próximo ponto usando duas confirmações consecutivas.
 
-    Retorna None quando a combinação não pertence à rota conhecida.
+    Args:
+        ponto_anterior: ID da confirmação anterior.
+        ponto_atual: ID da confirmação mais recente.
+        nome_rota: rota usada como referência.
+
+    Returns:
+        Dicionário com trecho, sentido e próximo ponto, ou ``None`` quando a
+        combinação não pertence à rota conhecida.
+
+    Importante: esta função interpreta somente a geometria da rota. Ela não
+    decide se a confirmação é recente, se o ônibus está em circulação ou se
+    existe atraso.
     """
     rota = carregar_rota(nome_rota)
     pontos = carregar_pontos()
@@ -128,11 +182,18 @@ def analisar_trecho(
 
 
 def formatar_situacao_rota(resultado: dict | None) -> str:
+    """Transforma o resultado técnico de ``analisar_trecho`` em texto legível.
+
+    Esta função é usada principalmente pelo simulador/testes manuais. Ela trata
+    o encerramento no RU e a apresentação diferenciada dos pontos opcionais.
+    """
     if resultado is None:
         return "Não foi possível identificar esse trecho na rota cadastrada."
 
     proximo = resultado["proximo"]
 
+    # O RU aparece também como término da volta. Nessa ocorrência, não existe
+    # próximo ponto dentro da mesma sequência cadastrada.
     if proximo is None and resultado.get("ponto_atual_id") == "ru":
         return (
             f"📍 Último ponto: {resultado['ponto_atual']}\n"
@@ -145,6 +206,9 @@ def formatar_situacao_rota(resultado: dict | None) -> str:
     ponto_referencia = resultado["ponto_atual"]
     rotulo_ponto = "📍 Último ponto"
 
+    # Pontos opcionais não são uma referência tão forte, pois o ônibus pode
+    # passar sem efetivamente parar. Nesses casos mostramos o ponto obrigatório
+    # anterior como referência visual.
     ponto_opcional = resultado.get("ponto_atual_opcional", False)
     if not ponto_opcional:
         ponto_opcional = resultado.get("ponto_atual") in {
