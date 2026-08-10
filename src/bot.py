@@ -32,6 +32,25 @@ ROTULOS_PONTOS = {
 }
 
 
+def teclado_menu_principal() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("🚌 Onde está o ônibus?", callback_data="onde")],
+            [InlineKeyboardButton("📍 Informar passagem", callback_data="local")],
+            [InlineKeyboardButton("⏰ Próximos horários", callback_data="horarios")],
+            [InlineKeyboardButton("📋 Listar horários", callback_data="listar_horarios")],
+            [InlineKeyboardButton("🗺️ Rota atual", callback_data="rota")],
+            [InlineKeyboardButton("📢 Avisos", callback_data="avisos")],
+        ]
+    )
+
+
+def teclado_voltar_menu() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("⬅️ Voltar ao menu", callback_data="menu")]]
+    )
+
+
 def teclado_periodos() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
@@ -43,6 +62,7 @@ def teclado_periodos() -> InlineKeyboardMarkup:
                 InlineKeyboardButton("🌤️ Tarde", callback_data="periodo_tarde"),
                 InlineKeyboardButton("🌙 Noite", callback_data="periodo_noite"),
             ],
+            [InlineKeyboardButton("⬅️ Voltar ao menu", callback_data="menu")],
         ]
     )
 
@@ -58,41 +78,49 @@ def teclado_pontos() -> InlineKeyboardMarkup:
         )
 
     linhas = [botoes[i : i + 2] for i in range(0, len(botoes), 2)]
+    linhas.append([InlineKeyboardButton("⬅️ Voltar ao menu", callback_data="menu")])
     return InlineKeyboardMarkup(linhas)
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    keyboard = [
-        [InlineKeyboardButton("🚌 Onde está o ônibus?", callback_data="onde")],
-        [InlineKeyboardButton("📍 Informar passagem", callback_data="local")],
-        [InlineKeyboardButton("⏰ Próximos horários", callback_data="horarios")],
-        [InlineKeyboardButton("📋 Listar horários", callback_data="listar_horarios")],
-        [InlineKeyboardButton("🗺️ Rota atual", callback_data="rota")],
-        [InlineKeyboardButton("📢 Avisos", callback_data="avisos")],
-    ]
-
-    mensagem = update.effective_message
-    if mensagem is None:
-        return
-
+async def enviar_menu(mensagem) -> None:
     await mensagem.reply_text(
         "🚌 BUSIVS BOT\n\n"
         "Acompanhe o circular da UFRB de forma colaborativa.\n\n"
         "Escolha uma opção:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        reply_markup=teclado_menu_principal(),
     )
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    mensagem = update.effective_message
+    if mensagem is None:
+        return
+
+    await enviar_menu(mensagem)
+
+
+async def botao_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    await enviar_menu(query.message)
 
 
 async def onde(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     mensagem = update.effective_message
     if mensagem:
-        await mensagem.reply_text(montar_localizacao_atual())
+        await mensagem.reply_text(
+            montar_localizacao_atual(),
+            reply_markup=teclado_voltar_menu(),
+        )
 
 
 async def botao_onde(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
-    await query.message.reply_text(montar_localizacao_atual())
+    await query.message.reply_text(
+        montar_localizacao_atual(),
+        reply_markup=teclado_voltar_menu(),
+    )
 
 
 async def local(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -127,13 +155,22 @@ async def botao_registrar_ponto(update: Update, context: ContextTypes.DEFAULT_TY
 
     if not resultado["aceito"]:
         if resultado["motivo"] == "duplicado":
-            await query.message.reply_text("Obrigado pela informação 😊")
+            await query.message.reply_text(
+                "Obrigado pela informação 😊",
+                reply_markup=teclado_voltar_menu(),
+            )
             return
 
-        await query.message.reply_text("⚠️ Não consegui reconhecer esse ponto.")
+        await query.message.reply_text(
+            "⚠️ Não consegui reconhecer esse ponto.",
+            reply_markup=teclado_voltar_menu(),
+        )
         return
 
-    await query.message.reply_text("Valeu! Registramos o ponto 😊")
+    await query.message.reply_text(
+        "Valeu! Registramos o ponto 😊",
+        reply_markup=teclado_voltar_menu(),
+    )
 
 
 async def horarios(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -142,6 +179,7 @@ async def horarios(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await mensagem.reply_text(
             montar_resumo_horarios("principal"),
             parse_mode="HTML",
+            reply_markup=teclado_voltar_menu(),
         )
 
 
@@ -160,6 +198,7 @@ async def botao_horarios(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await query.message.reply_text(
         montar_resumo_horarios("principal"),
         parse_mode="HTML",
+        reply_markup=teclado_voltar_menu(),
     )
 
 
@@ -180,6 +219,7 @@ async def botao_periodo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await query.message.reply_text(
         listar_horarios_periodo(periodo, "principal"),
         parse_mode="HTML",
+        reply_markup=teclado_voltar_menu(),
     )
 
 
@@ -193,6 +233,7 @@ def criar_aplicacao() -> Application:
     application.add_handler(CommandHandler("horarios", horarios))
     application.add_handler(CommandHandler("listar_horarios", comando_listar_horarios))
 
+    application.add_handler(CallbackQueryHandler(botao_menu, pattern="^menu$"))
     application.add_handler(CallbackQueryHandler(botao_onde, pattern="^onde$"))
     application.add_handler(CallbackQueryHandler(botao_local, pattern="^local$"))
     application.add_handler(CallbackQueryHandler(botao_registrar_ponto, pattern="^local_"))
