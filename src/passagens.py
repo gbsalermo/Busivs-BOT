@@ -8,6 +8,7 @@ from rota import carregar_pontos, carregar_rota
 FUSO_LOCAL = timezone(timedelta(hours=-3))
 CAMINHO_HORARIOS = Path(__file__).resolve().parent.parent / "data" / "horarios_letivo.json"
 JANELA_SAIDA_GARAGEM_MINUTOS = 35
+JANELA_CONFIRMACAO_RECENTE_MINUTOS = 30
 
 _estado = {
     "ponto_anterior": None,
@@ -181,6 +182,15 @@ def _tempo_desde_confirmacao(horario: datetime | None, agora: datetime | None = 
     return f"há {horas}h {minutos_restantes}min"
 
 
+def _tem_confirmacao_recente(agora: datetime) -> bool:
+    horario = _estado["horario"]
+    if horario is None:
+        return False
+
+    diferenca = agora - horario
+    return timedelta(0) <= diferenca <= timedelta(minutes=JANELA_CONFIRMACAO_RECENTE_MINUTOS)
+
+
 def _formatar_movimento(resultado: dict) -> str:
     sentido = resultado.get("sentido")
     proximo = resultado.get("proximo")
@@ -294,6 +304,17 @@ def registrar_passagem(ponto_id: str, telegram_id: int | None = None) -> dict:
     if ponto_id not in pontos:
         return {"aceito": False, "motivo": "ponto_invalido"}
 
+    agora = datetime.now(FUSO_LOCAL)
+    aguardando = aguardando_proxima_saida("principal", agora)
+
+    if aguardando is not None and not _tem_confirmacao_recente(agora):
+        return {
+            "aceito": False,
+            "motivo": "fora_circulacao",
+            "origem": aguardando["origem"],
+            "proxima": aguardando.get("proxima"),
+        }
+
     if _estado["ponto_atual"] == ponto_id:
         return {
             "aceito": False,
@@ -303,7 +324,6 @@ def registrar_passagem(ponto_id: str, telegram_id: int | None = None) -> dict:
         }
 
     anterior = _estado["ponto_atual"]
-    agora = datetime.now(FUSO_LOCAL)
     resultado_rota = None
 
     if anterior is not None:
