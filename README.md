@@ -1,34 +1,33 @@
 # BUSIVS BOT 🚌
 
-Bot comunitário para auxiliar estudantes da **UFRB - Campus Cruz das Almas** a consultar horários do circular e acompanhar sua posição de forma colaborativa.
+Bot comunitário para auxiliar estudantes da **UFRB - Campus Cruz das Almas** a consultar horários do circular e acompanhar sua situação de forma simples e colaborativa.
 
-> **Status atual:** protótipo funcional, rodando via Telegram e já validado em testes manuais de rota, localização, retorno e proteção contra registros fora de circulação.
+> **Status atual:** protótipo funcional rodando via Telegram.
 
 ---
 
-## O problema
+## O que é o BUSIVS BOT?
 
-Quem utiliza o circular nem sempre precisa de GPS em tempo real. Muitas vezes as perguntas são mais simples:
+O BUSIVS BOT nasceu para responder perguntas simples que fazem parte da rotina de quem depende do circular:
 
-- Qual é a próxima saída?
-- Tem uma volta acontecendo agora?
+- Qual é o próximo horário?
+- Existe uma volta acontecendo agora?
 - Onde o ônibus foi visto por último?
-- Para qual lado ele está indo?
 - Qual é o próximo ponto?
-- Ele ainda está circulando ou provavelmente já voltou para a Garagem?
+- Ele está indo para a Rua ou retornando?
+- Ele provavelmente já está na Garagem?
 
-O BUSIVS BOT tenta responder isso usando duas fontes simples:
+O objetivo não é substituir GPS em tempo real.
 
-1. **horários oficiais cadastrados**;
-2. **confirmações colaborativas de passagem feitas pelos alunos**.
-
-A proposta é manter o sistema pequeno, gratuito e fácil de continuar por outros estudantes.
+A proposta é usar os **horários oficiais** junto com a **colaboração dos próprios estudantes** para oferecer uma informação útil, rápida e acessível pelo Telegram.
 
 ---
 
 ## Interface
 
-O Telegram é toda a interface do protótipo. Não existe frontend separado.
+O Telegram é toda a interface do projeto.
+
+Não é necessário instalar outro aplicativo ou acessar um site separado.
 
 ![Interface inicial do BUSIVS BOT](docs/images/interface-inicial.png)
 
@@ -47,18 +46,16 @@ Menu atual:
 
 # O que já funciona
 
-## ⏰ Horários do circular Principal
+## ⏰ Consultar horários
 
-O bot consulta os horários cadastrados em JSON e consegue mostrar:
+O bot informa:
 
 - próxima viagem;
 - viagem seguinte;
 - horários por período;
 - origem da saída;
-- previsão aproximada de retorno pelo Portão 1;
-- viagem possivelmente em andamento;
-- percurso de retorno;
-- período em que o ônibus provavelmente aguarda a próxima saída.
+- previsão aproximada de passagem pelo Portão 1;
+- viagem possivelmente em andamento.
 
 Exemplo:
 
@@ -73,44 +70,21 @@ Exemplo:
 
 ---
 
-## 📍 Confirmação colaborativa de passagem
+## 📍 Colaboração dos estudantes
 
-O aluno toca em **Informar passagem** e escolhe o ponto por botão.
+O BUSIVS depende da colaboração da comunidade para tornar a informação mais útil.
 
-Não é necessário digitar o nome do local.
+Quando um aluno vê o ônibus passar, pode tocar em **📍 Informar passagem** e selecionar o ponto correspondente.
 
-Resposta para um registro válido:
-
-```text
-Valeu! Registramos o ponto 😊
-```
-
-Se outra pessoa registrar imediatamente o mesmo ponto:
-
-```text
-Obrigado pela informação 😊
-```
-
-O segundo registro não altera novamente o estado, mas também não informa ao usuário que sua contribuição foi descartada.
+Quanto mais estudantes colaborarem, mais útil tende a ser a informação exibida para quem está esperando o circular.
 
 ---
 
 ## 🚌 Onde está o ônibus?
 
-O comportamento depende do nível de informação disponível.
+O bot combina horário previsto e informações recebidas durante o percurso.
 
-### Sem confirmação real, mas com viagem prevista
-
-```text
-🚌 Pelo horário oficial, o ônibus deve ter saído da Garagem às 10:00.
-➡️ Sentido provável: RUA
-
-ℹ️ Informação baseada apenas no horário previsto, não em confirmação real.
-```
-
-A linguagem é propositalmente incerta: horário previsto nunca é tratado como GPS ou confirmação de saída.
-
-### Com confirmação colaborativa
+Quando existe uma confirmação recente, pode mostrar algo como:
 
 ```text
 📍 Última confirmação: Ponto Externo I / Alex
@@ -121,13 +95,22 @@ A linguagem é propositalmente incerta: horário previsto nunca é tratado como 
 ➡️ Sentido: RUA
 ```
 
-O bot usa o contexto da rota para descobrir sentido e próximo ponto.
+Quando ainda não existe confirmação, o sistema pode usar o horário previsto como referência:
+
+```text
+🚌 Pelo horário oficial, o ônibus deve ter saído da Garagem às 10:00.
+➡️ Sentido provável: RUA
+
+ℹ️ Informação baseada apenas no horário previsto, não em confirmação real.
+```
+
+O bot sempre tenta deixar claro quando uma informação é apenas uma estimativa.
 
 ---
 
 ## ↩️ Percurso de retorno
 
-Depois da janela estimada de passagem pelo Portão 1, o sistema pode identificar que a viagem provavelmente entrou no percurso de retorno.
+Depois da passagem esperada pelo Portão 1, o sistema pode indicar que o ônibus provavelmente está fazendo o percurso de retorno.
 
 ```text
 ↩️ Percurso de retorno
@@ -136,68 +119,32 @@ Depois da janela estimada de passagem pelo Portão 1, o sistema pode identificar
 📍 O ônibus ainda segue atendendo pontos durante esse percurso.
 ```
 
-Isso evita a interpretação errada de que "retornar para a Garagem" significa deixar de atender os pontos da volta.
+Isso é importante porque estar no retorno **não significa que o ônibus deixou de atender os pontos da rota**.
 
 ---
 
-## 🅿️ Provavelmente aguardando na origem
+## 🅿️ Provavelmente na Garagem
 
-Quando a janela estimada de retorno termina e ainda falta tempo para a próxima saída:
+Quando o percurso anterior provavelmente já terminou e ainda falta tempo para a próxima saída, o bot pode mostrar:
 
 ```text
 🅿️ Provavelmente na Garagem
+
 🚌 Pelo horário, o ônibus provavelmente já concluiu o percurso anterior.
 
 ⏰ Próxima saída prevista:
      🕐 11:30 — Garagem
 ```
 
-No protótipo atual, para uma saída normal às 10:00, o ciclo aproximado fica:
-
-```text
-10:00–10:20 → viagem possivelmente em andamento
-10:25–10:40 → percurso de retorno
-10:40–11:30 → provavelmente na Garagem
-11:30       → próxima saída
-```
-
-Esses tempos são aproximações e podem ser refinados com dados reais futuramente.
-
----
-
-## 🛡️ Proteção contra registros fora de circulação
-
-O bot possui uma primeira camada simples contra alguém informar uma passagem quando provavelmente não existe viagem ativa.
-
-Regra:
-
-```text
-aguardando próxima saída
-+
-sem confirmação válida nos últimos 30 minutos
-=
-bloquear nova passagem
-```
-
-Exemplo:
-
-```text
-🚫 Não há percurso ativo no momento.
-
-🚌 Pelo horário, o ônibus provavelmente está em Garagem.
-⏰ Próxima saída prevista:
-     🕐 11:30 — Garagem
-```
-
-A margem de 30 minutos é importante para não bloquear um ônibus que esteja realmente atrasado.
+Dessa forma, o aluno consegue saber não apenas que não há uma volta ativa, mas também quando deve acontecer a próxima saída.
 
 ---
 
 ## ⚠️ Possível atraso
 
-Existe uma primeira regra experimental de atraso para o **Portão 1**.
+O protótipo já possui uma primeira lógica experimental para indicar possível atraso no Portão 1.
 
-Se entre aproximadamente `10:15` e `10:20` a última confirmação ainda estiver em **Biblioteca** ou **Pavilhão II**, no sentido da Rua, o bot pode indicar:
+Quando a posição conhecida do ônibus não combina com o horário esperado, o sistema pode mostrar:
 
 ```text
 ⚠️ Possível atraso no Portão 1
@@ -205,7 +152,7 @@ Se entre aproximadamente `10:15` e `10:20` a última confirmação ainda estiver
 ℹ️ É uma estimativa, não uma confirmação de atraso.
 ```
 
-Essa lógica ainda não foi generalizada para todos os horários.
+Essa funcionalidade ainda será refinada com o uso real do projeto.
 
 ---
 
@@ -241,336 +188,106 @@ Torre / COTEC (opcional)
 RU / Residências
 ```
 
-### Por que a rota precisa de contexto?
-
-A **Biblioteca aparece duas vezes** no trajeto.
-
-Por isso o sistema não pode fazer algo simplista como:
-
-```python
-if ponto == "biblioteca":
-    sentido = "RUA"
-```
-
-Ele considera registros anteriores para distinguir, por exemplo:
-
-```text
-Pavilhão I → Biblioteca = sentido RUA
-Portão 1 → Biblioteca   = sentido RU
-```
-
-Pontos opcionais também podem ser pulados sem quebrar o fluxo.
+Os pontos opcionais são atendidos quando houver necessidade de desembarque.
 
 ---
 
-# Arquitetura atual
+# Como o sistema funciona
 
-A arquitetura propositalmente é pequena:
+A ideia é propositalmente simples:
 
 ```text
-┌─────────────────────┐
-│      Telegram       │
-└──────────┬──────────┘
-           │
-           ▼
-┌─────────────────────┐
-│       bot.py        │  comandos, callbacks e interface
-└──────────┬──────────┘
-           │
-     ┌─────┴─────┐
-     ▼           ▼
-┌──────────┐ ┌────────────┐
-│horarios.py│ │passagens.py│
-└────┬─────┘ └──────┬─────┘
-     │              │
-     │              ▼
-     │        ┌──────────┐
-     │        │ rota.py  │
-     │        └────┬─────┘
-     │             │
-     ▼             ▼
-┌────────────────────────┐
-│       arquivos JSON    │
-│ horários / rota / pontos│
-└────────────────────────┘
+Horários oficiais
+       +
+colaboração dos alunos
+       ↓
+BUSIVS BOT
+       ↓
+Telegram
 ```
 
-Não existem atualmente:
+O sistema não possui GPS próprio.
 
-- servidor web;
-- frontend próprio;
-- PostgreSQL;
-- Redis;
-- microserviços;
-- autenticação obrigatória;
-- serviço de GPS.
+Por isso existem dois tipos de informação:
 
-Isso é intencional.
+- **confirmação de passagem** — informação recebida durante o percurso;
+- **estimativa** — informação calculada a partir do horário previsto.
+
+Sempre que possível, o bot deixa essa diferença explícita.
 
 ---
 
-# Stack atual
+# Por que Telegram?
+
+O projeto utiliza o Telegram porque permite:
+
+- acesso rápido pelo celular;
+- botões simples;
+- nenhum frontend separado;
+- baixo custo de operação;
+- facilidade para estudantes colaborarem;
+- possibilidade futura de integração com tags NFC nos pontos.
+
+---
+
+# Tecnologias
+
+O protótipo atual usa:
 
 - Python
+- Telegram Bot API
 - `python-telegram-bot`
 - `python-dotenv`
-- JSON
-- estado temporário em memória
-- Telegram Bot API
+- arquivos JSON
 
-### Possíveis tecnologias futuras
-
-Somente se aparecer necessidade concreta:
-
-- SQLite para persistência;
-- NFC para confirmação de pontos;
-- autenticação institucional;
-- mecanismo de avisos automáticos.
+A arquitetura foi mantida pequena de propósito para que o projeto continue barato e fácil de manter.
 
 ---
 
-# Estrutura importante do projeto
+# Próximos passos
 
-Para quem está chegando agora, estes são os arquivos principais:
+O projeto ainda deve evoluir com recursos como:
+
+- suporte ao Micro-ônibus;
+- tags NFC nos pontos;
+- tratamento de desvios dos portões;
+- modo de férias;
+- refinamento das estimativas com dados reais;
+- avisos de atraso;
+- possíveis notificações para usuários interessados.
+
+---
+
+# Status do projeto
 
 ```text
-Busivs-BOT/
-├── data/
-│   ├── horarios_letivo.json   # horários oficiais
-│   ├── pontos.json            # pontos e aliases
-│   └── rotas.json             # sequência da rota
-│
-├── src/
-│   ├── bot.py                 # Telegram: menus, comandos e callbacks
-│   ├── horarios.py            # regras de horário e estados da viagem
-│   ├── passagens.py           # confirmações, localização e proteção
-│   ├── rota.py                # análise da rota, sentido e próximo ponto
-│   └── config.py              # configuração / token
-│
-├── tests/
-│   ├── test_rota.py           # testes automáticos de rota
-│   └── simular_rota.py        # simulador manual
-│
-├── docs/                      # documentação complementar
-├── CONTINUIDADE.md            # estado atual e próximos passos
-├── requirements.txt
-└── README.md
+Base do bot                              ✅
+Horários fixos do Principal             ✅
+Pontos / rota / sentido / próximo ponto ✅
+Informar passagem                       ✅ protótipo
+Localização / tempo / estados           ✅ protótipo validado
+Principal + Micro                       ⏭️ próxima etapa
+NFC                                     ⏳
+Desvios dos portões                     ⏳
+Modo de férias                          ⏳
+Avisos e alertas                        ⏳
 ```
 
 ---
 
-# Onde mexer?
+# Documentação técnica
 
-### Quero alterar um horário
+Para quem deseja estudar, desenvolver ou continuar o projeto:
 
-Edite:
-
-```text
-data/horarios_letivo.json
-```
-
-Evite escrever horários diretamente dentro do Python.
-
-### Quero adicionar ou renomear um ponto
-
-Edite:
-
-```text
-data/pontos.json
-```
-
-Depois verifique se a rota ainda referencia o ID correto.
-
-### Quero mudar a sequência da rota
-
-Edite:
-
-```text
-data/rotas.json
-```
-
-Depois rode os testes de rota.
-
-### Quero mudar cálculo de horário, Portão 1 ou estado da viagem
-
-Arquivo:
-
-```text
-src/horarios.py
-```
-
-### Quero mudar registro colaborativo ou "Onde está o ônibus?"
-
-Arquivo:
-
-```text
-src/passagens.py
-```
-
-### Quero mudar botões, comandos ou textos do Telegram
-
-Arquivo:
-
-```text
-src/bot.py
-```
-
-### Quero mudar a interpretação de sentido / próximo ponto
-
-Arquivo:
-
-```text
-src/rota.py
-```
-
----
-
-# Como executar localmente
-
-## 1. Clone o projeto
-
-```bash
-git clone https://github.com/gbsalermo/Busivs-BOT.git
-cd Busivs-BOT
-```
-
-## 2. Crie um ambiente virtual
-
-Windows:
-
-```bash
-python -m venv .venv
-.venv\Scripts\activate
-```
-
-Linux/macOS:
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-```
-
-## 3. Instale as dependências
-
-```bash
-pip install -r requirements.txt
-```
-
-## 4. Configure o token
-
-Crie um arquivo `.env` na raiz:
-
-```env
-TELEGRAM_BOT_TOKEN=seu_token_aqui
-```
-
-> Nunca envie o token para o GitHub.
-
-## 5. Execute
-
-```bash
-python src/bot.py
-```
-
----
-
-# Testes
-
-## Testes automáticos da rota
-
-```bash
-python -m unittest tests/test_rota.py
-```
-
-Os cenários incluem:
-
-- Biblioteca na ida;
-- Biblioteca no retorno;
-- Canãa → Portão 1;
-- parada opcional utilizada;
-- parada opcional pulada;
-- transições inválidas.
-
-## Simulador manual
-
-```bash
-python tests/simular_rota.py
-```
-
-Útil para entender a sequência do circular sem precisar ficar clicando no Telegram.
-
----
-
-# Regras importantes para contribuir
-
-1. **Não tratar estimativa como confirmação.**
-2. **Não inferir sentido apenas pelo nome do ponto.**
-3. **Manter horários e rotas nos JSONs sempre que possível.**
-4. **Evitar adicionar infraestrutura sem necessidade concreta.**
-5. **Testar Biblioteca nos dois sentidos ao alterar lógica de rota.**
-6. **Considerar que ônibus pode estar atrasado antes de bloquear uma passagem.**
-7. **Preferir uma solução simples que outro aluno consiga entender.**
-
----
-
-# Estado atual do roadmap
-
-```text
-Etapa 1  - Base do bot                              ✅
-Etapa 2  - Horários fixos do Principal             ✅
-Etapa 3  - Pontos / rota / sentido / próximo ponto ✅
-Etapa 4  - Informar passagem                       ✅ protótipo
-Etapa 5  - Localização / tempo / estados / proteção ✅ protótipo validado
-Etapa 6  - Principal + Micro                        ⏭️ próxima
-Etapa 7  - NFC                                      ⏳
-Etapa 8  - Desvios dos portões                      ⏳
-Etapa 9  - Modo de férias                           ⏳
-Etapa 10 - Autenticação institucional               ⏳ se necessária
-Etapa 11 - Avisos e alertas automáticos             ⏳ pós-protótipo
-```
-
----
-
-# Próximas ideias
-
-### Micro-ônibus
-
-Adicionar o veículo de reforço sem quebrar o fluxo simples do Principal.
-
-### NFC
-
-Tags nos pontos poderão abrir o Telegram com um deep link associado ao ponto, tornando a confirmação mais confiável e rápida.
-
-### Persistência
-
-O estado atual fica apenas em memória. SQLite pode ser considerado quando houver necessidade de:
-
-- sobreviver a reinícios;
-- guardar histórico;
-- calcular tempos reais de percurso;
-- melhorar estimativas com dados coletados.
-
-### Alertas
-
-No pós-protótipo, estudar alertas opt-in de possível atraso para usuários interessados.
-
----
-
-# Documentação
-
-- [Continuidade e estado atual](CONTINUIDADE.md)
+- [Continuidade e guia técnico](CONTINUIDADE.md)
 - [Fluxo do Telegram](docs/FLUXO_TELEGRAM.md)
 - [Roadmap até Beta](docs/ROADMAP_BETA.md)
 - [Arquitetura](docs/ARQUITETURA.md)
 
 ---
 
-## Ideia central
+## BUSIVS BOT
 
-O BUSIVS BOT não tenta começar como um sistema complexo de rastreamento.
+Um projeto simples com uma ideia simples:
 
-Ele parte de uma pergunta mais prática:
-
-> **Com os horários que já existem e a colaboração dos próprios alunos, qual é a informação mais útil que conseguimos entregar agora?**
-
-A arquitetura deve crescer somente quando essa resposta exigir.
+> **usar colaboração e informação para diminuir a incerteza de quem está esperando o circular.**
