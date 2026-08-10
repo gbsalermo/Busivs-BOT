@@ -6,29 +6,26 @@ Documento técnico de retomada rápida do projeto.
 
 # Regras importantes para contribuir
 
-Antes de mexer no projeto, manter estas regras em mente:
+Antes de mexer no projeto:
 
 1. **Não tratar estimativa como confirmação.**
 2. **Não inferir sentido apenas pelo nome do ponto.**
 3. **Manter horários, pontos e rotas nos JSONs sempre que possível.**
-4. **Evitar adicionar infraestrutura sem necessidade concreta.**
-5. **Testar Biblioteca nos dois sentidos ao alterar lógica de rota.**
-6. **Considerar que o ônibus pode estar atrasado antes de bloquear uma passagem.**
-7. **Preferir soluções simples que outro aluno consiga entender.**
-8. **Não criar dependências ou serviços novos sem um problema real que justifique isso.**
-9. **Mudanças técnicas devem preservar a diferença entre dado confirmado e dado estimado.**
+4. **Evitar infraestrutura sem necessidade concreta.**
+5. **Testar Biblioteca nos dois sentidos ao alterar a lógica de rota.**
+6. **Considerar atraso real antes de bloquear uma passagem.**
+7. **Preferir soluções pequenas e compreensíveis por outros alunos.**
+8. **Não adicionar serviços, banco ou dependências sem um problema atual que justifique.**
+9. **Preservar sempre a diferença entre dado confirmado e dado estimado.**
+10. **Dados de localização são temporários: o objetivo é representar o ônibus agora, não criar histórico por padrão.**
 
 ## Princípio principal
 
 > **O BUSIVS BOT deve ser simples, eficaz e de custo zero ou próximo de zero.**
 
-O projeto é desenvolvido de forma incremental. Toda implementação deve continuar pequena, legível, testável e compreensível.
-
-Antes de adicionar tecnologia, camada ou dependência, perguntar:
+Antes de adicionar qualquer camada:
 
 > **Isso resolve um problema que o BUSIVS BOT tem agora?**
-
-Evitar overengineering, microserviços, frontend próprio, Redis, Kubernetes, banco gerenciado e outras estruturas que não sejam necessárias para o estágio atual.
 
 Stack atual:
 
@@ -37,9 +34,9 @@ Telegram
    ↓
 Python + python-telegram-bot
    ↓
-JSON para dados fixos
+JSON para dados permanentes
    ↓
-Estado temporário em memória
+Memória para estado temporário do ônibus
 ```
 
 Dependências atuais:
@@ -49,61 +46,131 @@ python-telegram-bot
 python-dotenv
 ```
 
-SQLite continua sendo apenas uma opção futura caso persistência passe a ser necessária.
+---
+
+# Decisão arquitetural atual: sem SQL
+
+**Decisão tomada antes da hospedagem:** não adicionar banco de dados neste momento.
+
+Motivo: o BUSIVS trabalha principalmente com informação atual e de vida curta.
+
+Dados que precisam permanecer:
+
+```text
+horários → JSON
+pontos   → JSON
+rotas    → JSON
+```
+
+Dados que devem ser temporários:
+
+```text
+última confirmação
+horário da confirmação
+ponto anterior
+sentido inferido
+próximo ponto
+contexto da viagem atual
+```
+
+O sistema não precisa saber onde o ônibus estava dez horas atrás para responder onde ele está agora.
+
+SQL/SQLite só deve entrar quando existir necessidade real de histórico, por exemplo:
+
+- calcular tempos médios reais entre pontos;
+- estudar atrasos por faixa de horário;
+- guardar histórico de viagens;
+- produzir estatísticas;
+- calibrar automaticamente estimativas;
+- manter controles de abuso de longo prazo.
+
+Até lá, **estado em memória é uma escolha intencional, não uma limitação a ser corrigida automaticamente**.
+
+---
+
+# Ciclo de vida do estado temporário
+
+O bot não deve ser reiniciado várias vezes ao dia apenas para apagar localização antiga.
+
+O processo pode ficar rodando 24h. Quem expira é o **estado do ônibus**.
+
+Implementado em `src/passagens.py`:
+
+```text
+1. confirmação de dia anterior
+   → estado é limpo
+
+2. ônibus aguardando próxima saída
+   + confirmação sem validade recente
+   → estado é limpo
+
+3. nova viagem oficial começou
+   + confirmação pertence a uma viagem anterior
+   → estado é limpo
+
+4. dado ainda pertence à viagem atual
+   → continua sendo usado
+```
+
+A janela de confirmação recente usada atualmente é:
+
+```text
+30 minutos
+```
+
+Essa margem existe para não apagar imediatamente uma confirmação quando o ônibus pode estar apenas atrasado.
+
+Consequência desejada:
+
+```text
+DADO REAL RECENTE
+      ↓
+usa confirmação colaborativa
+
+DADO ENVELHECE / VIAGEM TERMINA
+      ↓
+estado expira
+
+SEM DADO REAL ÚTIL
+      ↓
+horário oficial volta a ser a referência
+
+NOVA VIAGEM
+      ↓
+começa sem carregar localização da volta anterior
+```
+
+Não é necessário agendar reinicializações às 09h, 11h, 15h etc.
 
 ---
 
 # Onde mexer?
 
-## Quero alterar um horário
-
-Edite:
+## Horários
 
 ```text
 data/horarios_letivo.json
 ```
 
-Evite escrever horários diretamente dentro do Python.
-
-## Quero adicionar ou renomear um ponto
-
-Edite:
-
-```text
-data/pontos.json
-```
-
-Depois confira se `data/rotas.json` continua referenciando o ID correto.
-
-## Quero mudar a sequência da rota
-
-Edite:
-
-```text
-data/rotas.json
-```
-
-Depois rode os testes de rota.
-
-## Quero mudar regras de horário ou estados da viagem
-
-Arquivo:
+Regras e estados derivados dos horários:
 
 ```text
 src/horarios.py
 ```
 
-Aqui ficam regras como:
+## Pontos
 
-- viagem possivelmente em andamento;
-- previsão do Portão 1;
-- percurso de retorno;
-- provável espera na origem;
-- próxima saída.
+```text
+data/pontos.json
+```
 
-## Quero mudar registro de passagem ou "Onde está o ônibus?"
+## Sequência da rota
 
-Arquivo:
+```text
+data/rotas.json
+```
+
+## Estado temporário, colaboração e "Onde está o ônibus?"
 
 ```text
 src/passagens.py
@@ -111,43 +178,32 @@ src/passagens.py
 
 Aqui ficam:
 
-- estado temporário das confirmações;
-- cálculo de tempo desde a confirmação;
+- última confirmação;
+- tempo desde a confirmação;
 - integração entre horário e rota;
+- ciclo de vida / expiração do estado;
 - proteção contra passagem fora de circulação;
-- mensagem de localização atual.
+- localização apresentada ao usuário.
 
-## Quero mudar botões, comandos ou mensagens do Telegram
-
-Arquivo:
-
-```text
-src/bot.py
-```
-
-## Quero mudar interpretação de sentido ou próximo ponto
-
-Arquivo:
+## Sentido e próximo ponto
 
 ```text
 src/rota.py
 ```
 
-## Quero alterar dados fixos
+## Telegram: menus, comandos e callbacks
 
 ```text
-data/horarios_letivo.json
-data/pontos.json
-data/rotas.json
+src/bot.py
 ```
 
-## Quero validar a rota
+## Testar rota
 
 ```bash
 python -m unittest tests/test_rota.py
 ```
 
-Simulador manual:
+Simulador:
 
 ```bash
 python tests/simular_rota.py
@@ -155,23 +211,25 @@ python tests/simular_rota.py
 
 ---
 
-# Visão do produto
+# Visão atual do produto
 
 O BUSIVS BOT é um bot de Telegram para estudantes da UFRB - Campus Cruz das Almas.
 
-O objetivo é responder principalmente:
+Hoje ele responde principalmente:
 
 1. Qual é o próximo horário do circular?
-2. Existe uma viagem provavelmente acontecendo agora?
-3. Onde o ônibus foi confirmado pela última vez?
-4. Qual o sentido e o próximo ponto esperado?
-5. O ônibus provavelmente está no retorno ou aguardando a próxima saída?
-6. Existe algum indício de atraso?
+2. Existe uma viagem provavelmente em andamento?
+3. Onde ocorreu a última confirmação útil?
+4. Qual o sentido e o próximo ponto?
+5. O ônibus provavelmente está no retorno?
+6. O percurso provavelmente terminou?
+7. Qual é a próxima saída?
+8. Existe indício de atraso?
 
-O sistema deve sempre diferenciar:
+Sempre distinguir:
 
-- **confirmação real feita por usuário**;
-- **estimativa baseada no horário oficial**;
+- **confirmação real**;
+- **estimativa por horário**;
 - **inferência de possível atraso**.
 
 Nunca apresentar estimativa como certeza.
@@ -180,18 +238,16 @@ Nunca apresentar estimativa como certeza.
 
 # Autenticação
 
-A autenticação institucional foi adiada para o pós-protótipo.
-
-Motivo: horários e localização do circular são informações públicas, e exigir autenticação aumentaria o atrito para o aluno.
+Autenticação institucional continua adiada.
 
 No protótipo:
 
 - consulta é pública;
 - informar passagem é público;
-- `telegram_id` pode ser mantido internamente para controles simples;
-- autenticação por e-mail institucional só será estudada se surgir problema real de abuso ou confiança.
+- `telegram_id` pode ser mantido internamente;
+- abuso é tratado primeiro com regras simples de contexto e horário.
 
-A primeira proteção contra abuso já foi implementada usando contexto de horário + confirmação recente, sem exigir login.
+Autenticação só deve ser estudada se surgir um problema real que as regras atuais não consigam resolver.
 
 ---
 
@@ -199,77 +255,30 @@ A primeira proteção contra abuso já foi implementada usando contexto de horá
 
 ## Principal
 
-Ônibus regular, com horários fixos. É o veículo implementado atualmente.
+Implementado e funcional.
 
 ## Micro
 
-Ônibus de reforço e operação incerta. Ainda não implementado.
+Ainda não implementado.
 
 ---
 
-# Etapa 1 - Base do bot
+# Etapas concluídas
 
-**Concluída.**
-
-Implementado:
-
-- `.env` para token;
-- `python-telegram-bot`;
-- `/start`;
-- menu com botões inline;
-- logging;
-- `run_polling()`;
-- botão de voltar ao menu.
+```text
+Etapa 1  - Base do bot                              ✅
+Etapa 2  - Horários fixos do Principal             ✅
+Etapa 3  - Pontos / rota / sentido / próximo ponto ✅
+Etapa 4  - Informar passagem                       ✅ protótipo
+Etapa 5  - Localização / tempo / estados / proteção ✅ protótipo validado
+Etapa 5.5- Ciclo de vida do estado                  ✅ pré-hospedagem
+```
 
 ---
 
-# Etapa 2 - Horários fixos
+# Estados da viagem baseados em horário
 
-**Concluída para o Principal.**
-
-Implementado:
-
-- `/horarios`;
-- `/listar_horarios`;
-- próximos horários;
-- períodos Manhã / Almoço / Tarde / Noite;
-- origem da viagem;
-- estimativa de retorno pelo Portão 1;
-- diferenciação visual entre RU e Garagem;
-- identificação de viagem possivelmente em andamento;
-- identificação de percurso de retorno;
-- identificação de período aguardando a próxima saída.
-
-Horários cuja origem é **Garagem**:
-
-```text
-06:25
-09:35
-10:00
-11:30
-13:00
-15:35
-16:00
-17:30
-20:40
-21:40
-22:30
-```
-
-Demais horários cadastrados usam RU como origem.
-
-Estimativa geral até o Portão 1:
-
-```text
-normal: 15 a 20 min
-pico:   20 a 25 min
-```
-
-A previsão é estimativa, não GPS.
-
-## Estados baseados em horário
-
-O protótipo trabalha com uma sequência simples:
+O Principal trabalha atualmente com:
 
 ```text
 1. viagem possivelmente em andamento
@@ -278,7 +287,7 @@ O protótipo trabalha com uma sequência simples:
 4. próxima saída prevista
 ```
 
-Exemplo para a saída de 10:00:
+Exemplo da saída de 10:00:
 
 ```text
 10:00–10:20 → viagem possivelmente em andamento
@@ -287,15 +296,11 @@ Exemplo para a saída de 10:00:
 11:30       → próxima saída
 ```
 
-As janelas são aproximações e podem ser refinadas depois com dados reais de uso.
+São aproximações, não GPS.
 
 ---
 
-# Etapa 3 - Pontos, rota, sentido e próximo ponto
-
-**Concluída e validada.**
-
-Rota cadastrada:
+# Rota validada
 
 ```text
 RU / Residências
@@ -327,234 +332,154 @@ Torre / COTEC (opcional)
 RU / Residências
 ```
 
-A direção é inferida usando contexto de rota, principalmente `ponto anterior + ponto atual`, porque Biblioteca aparece em dois momentos diferentes.
+Biblioteca aparece duas vezes. Nunca inferir sentido apenas pelo nome do ponto.
 
 Exemplos:
 
 ```text
-Pavilhão I → Biblioteca = sentido RUA
-Portão 1 → Biblioteca = sentido RU
-Canãa → Portão 1 = sentido RU
+Pavilhão I → Biblioteca = RUA
+Portão 1 → Biblioteca   = RU
+Canãa → Portão 1        = RU
 ```
-
-Pontos opcionais podem ser pulados sem quebrar a análise.
 
 ---
 
-# Etapa 4 - Informar passagem
+# Proteção contra registros fora de circulação
 
-**Concluída no protótipo.**
-
-Fluxo atual:
-
-- usuário toca em `📍 Informar passagem`;
-- escolhe o ponto por botão;
-- o estado é atualizado em memória;
-- registros consecutivos do mesmo ponto não alteram novamente o estado.
-
-O estado atual fica em memória e é apagado quando o processo do bot reinicia. Isso continua aceitável no protótipo porque a informação é pequena e altamente temporária.
-
-## Proteção contra passagem falsa fora de circulação
-
-**Implementada e testada com sucesso.**
+Implementada e testada.
 
 Regra atual:
 
 ```text
-ônibus em estado de aguardar próxima saída
+ônibus aguardando próxima saída
 +
 sem confirmação válida nos últimos 30 minutos
 =
 bloquear nova passagem
 ```
 
-A margem existe para evitar bloquear uma viagem realmente atrasada.
+A margem de 30 minutos preserva a possibilidade de atraso real.
 
 ---
 
-# Etapa 5 - Onde está / última confirmação / estimativas
+# Possível atraso - regra experimental
 
-**Concluída no protótipo inicial e validada manualmente.**
-
-A implementação está na `main`.
-
-## Sem confirmação real
-
-Quando existir uma viagem compatível com o horário oficial, o bot informa uma estimativa de saída sem afirmar que ela realmente aconteceu.
-
-## Primeira confirmação
-
-A primeira confirmação pode usar o horário oficial como contexto para estimar sentido e próximo ponto.
-
-## Duas ou mais confirmações
-
-Depois que existe contexto suficiente de rota, a apresentação mostra:
-
-```text
-📍 Última confirmação: Ponto Externo I / Alex
-🕐 agora mesmo (10:20:49)
-
-⏭️ Próximo:
-     📍 Ponto Externo II / Canãa
-➡️ Sentido: RUA
-```
-
-Não existe mais um segundo campo de "último ponto" ou "ponto de referência".
-
-## Percurso de retorno
-
-Depois da janela estimada do Portão 1, o bot pode informar:
-
-```text
-↩️ Percurso de retorno
-🚌 Pelo horário, o ônibus provavelmente está no percurso de retorno.
-⬅️ Sentido: Garagem
-📍 O ônibus ainda segue atendendo pontos durante esse percurso.
-```
-
-## Aguardando próxima saída
-
-Depois da janela estimada de retorno:
-
-```text
-🅿️ Provavelmente na Garagem
-🚌 Pelo horário, o ônibus provavelmente já concluiu o percurso anterior.
-
-⏰ Próxima saída prevista:
-     🕐 11:30 — Garagem
-```
-
-Esse estado também é usado pela proteção contra registros fora de circulação.
-
-## Tempo desde a confirmação
-
-A confirmação apresenta tempo decorrido:
-
-```text
-agora mesmo
-há 4 min
-há 1h 12min
-```
-
-O horário exato continua aparecendo entre parênteses durante o protótipo para facilitar testes.
-
-## Regra experimental de possível atraso - Portão 1
-
-A primeira regra de atraso continua restrita ao caso estudado:
+Ainda restrita ao primeiro cenário estudado:
 
 ```text
 janela: 10:15 até 10:20
 último ponto: Biblioteca ou Pavilhão II
-contexto: sentido RUA
+sentido: RUA
 previsão Portão 1: por volta de 10:20
 ```
 
-Não disparar essa regra para Biblioteca no retorno, quando o sentido já for RU.
-
-Não generalizar para todos os horários antes de observar o uso real.
+Não generalizar antes de observar uso real.
 
 ---
 
 # Testes já realizados
 
-## Rota
+## Automáticos
 
-A suíte cobre:
+A rota cobre:
 
 - Biblioteca na ida;
 - Biblioteca no retorno;
 - Canãa → Portão 1;
-- pontos opcionais atendidos ou pulados;
-- transição inválida;
+- pontos opcionais usados ou pulados;
+- transições inválidas;
 - ponto inexistente.
 
-## Testes manuais da Etapa 5
+## Manuais
 
-Já foram validados:
+Já foram testados com sucesso:
 
-- confirmação de passagem;
+- informar passagem;
 - tempo decorrido;
-- sentido e próximo ponto;
-- estado de viagem por horário;
+- sentido;
+- próximo ponto;
+- viagem baseada em horário;
 - percurso de retorno;
 - provável espera na Garagem;
-- próxima saída prevista;
-- bloqueio de passagem fora de circulação sem confirmação recente.
+- próxima saída;
+- bloqueio fora de circulação.
+
+## Ainda testar antes de hospedar
+
+Depois da implementação do ciclo de vida:
+
+1. registrar uma passagem e garantir que continua válida durante a mesma viagem;
+2. simular confirmação antiga durante `aguardando próxima saída` e verificar a limpeza;
+3. garantir que uma confirmação da viagem anterior não aparece depois do início da próxima viagem;
+4. validar que estado de dia anterior é descartado;
+5. repetir o teste de proteção contra registro fora de circulação;
+6. executar novamente `tests/test_rota.py`.
 
 ---
 
-# Estrutura principal
+# Pré-hospedagem
+
+Antes de escolher hospedagem, fechar somente os pontos essenciais.
+
+Checklist:
 
 ```text
-Busivs-BOT/
-├── data/
-│   ├── horarios_letivo.json
-│   ├── pontos.json
-│   └── rotas.json
-│
-├── src/
-│   ├── bot.py
-│   ├── horarios.py
-│   ├── passagens.py
-│   ├── rota.py
-│   └── config.py
-│
-├── tests/
-│   ├── test_rota.py
-│   └── simular_rota.py
-│
-├── docs/
-├── CONTINUIDADE.md
-├── requirements.txt
-└── README.md
+[ ] validar ciclo de vida do estado
+[ ] rodar testes de rota novamente
+[ ] revisar mensagens principais do Telegram
+[ ] confirmar .env fora do Git
+[ ] confirmar requirements.txt mínimo
+[ ] decidir plataforma de hospedagem
+[ ] configurar TELEGRAM_BOT_TOKEN na plataforma
+[ ] manter processo Python ativo 24h
+[ ] validar timezone UTC-3 no ambiente hospedado
+[ ] fazer teste real com poucos alunos
 ```
 
----
+A hospedagem não precisa de:
 
-# Pós-protótipo - alertas de atraso
+- PostgreSQL;
+- Redis;
+- frontend;
+- Docker, salvo se a plataforma escolhida realmente exigir ou simplificar;
+- reinicialização manual várias vezes por dia.
 
-Estudar alertas automáticos de possível atraso para usuários que optem por receber esse tipo de aviso.
-
-Antes de implementar, definir:
-
-- quem recebe;
-- opt-in / opt-out;
-- frequência máxima;
-- limite de confiança;
-- prevenção de spam.
+O bot deve ficar online e deixar o próprio ciclo de vida descartar os dados antigos.
 
 ---
 
-# Próximas etapas
+# Próximas etapas depois de colocar online
+
+A prioridade deve ser observar uso real antes de ampliar a arquitetura.
 
 ```text
-Etapa 1  - Base do bot                              ✅
-Etapa 2  - Horários fixos do Principal             ✅
-Etapa 3  - Pontos / rota / sentido / próximo ponto ✅
-Etapa 4  - Informar passagem                       ✅ protótipo
-Etapa 5  - Localização / tempo / estados / proteção ✅ protótipo validado
-Etapa 6  - Principal + Micro                        ⏭️ próxima
-Etapa 7  - NFC                                      ⏳
-Etapa 8  - Desvios dos portões                      ⏳
-Etapa 9  - Modo de férias                           ⏳
-Etapa 10 - Autenticação institucional               ⏳ pós-protótipo / se necessária
-Etapa 11 - Avisos e alertas automáticos             ⏳ pós-protótipo
+Hospedagem / teste com alunos                  ⏭️ próximo
+Etapa 6  - Principal + Micro                   ⏳
+Etapa 7  - NFC                                 ⏳
+Etapa 8  - Desvios dos portões                 ⏳
+Etapa 9  - Modo de férias                      ⏳
+Etapa 10 - Autenticação institucional          ⏳ se necessária
+Etapa 11 - Avisos e alertas automáticos        ⏳ pós-protótipo
 ```
+
+Sugestão atual: **não começar o Micro antes de colocar o Principal online e observar o comportamento do protótipo com usuários reais.**
 
 ---
 
-# Pontos de atenção antes de evoluir
+# Quando reconsiderar persistência
 
-- estado dinâmico ainda é perdido quando o bot reinicia;
-- não há histórico de passagens;
-- não há banco de dados;
-- não há autenticação institucional;
-- Micro ainda não foi implementado;
-- tempos de retorno são aproximações do protótipo;
-- confirmações reais devem continuar tendo prioridade sobre estimativas de horário;
-- Biblioteca aparece duas vezes na rota;
-- NFC deverá futuramente se tornar uma fonte de confirmação mais confiável que o clique manual.
+Reavaliar SQLite somente quando uma destas necessidades surgir:
 
-## Próximo passo recomendado
+```text
+histórico de passagens
+métricas de uso
+tempos médios entre pontos
+estimativas treinadas com dados reais
+estatísticas de atraso
+estado sobrevivendo a reinícios por necessidade funcional
+controle de abuso de longo prazo
+```
 
-Começar a **Etapa 6 - Principal + Micro**, sem adicionar infraestrutura nova antes de existir necessidade concreta.
+Até lá:
+
+> **JSON guarda o que é permanente. Memória guarda o que é atual.**
