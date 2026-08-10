@@ -1,8 +1,12 @@
+import json
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from rota import carregar_pontos, carregar_rota, formatar_situacao_rota
 
 FUSO_LOCAL = timezone(timedelta(hours=-3))
+CAMINHO_HORARIOS = Path(__file__).resolve().parent.parent / "data" / "horarios_letivo.json"
+JANELA_SAIDA_GARAGEM_MINUTOS = 35
 
 _estado = {
     "ponto_anterior": None,
@@ -43,6 +47,34 @@ def _ocorrencias(rota: list[dict], ponto_id: str) -> list[int]:
     ]
 
 
+def _proximo_da_ocorrencia(rota: list[dict], indice_atual: int, pontos: dict[str, dict]) -> dict | None:
+    if indice_atual + 1 >= len(rota):
+        return None
+
+    item_proximo = rota[indice_atual + 1]
+    ponto_proximo = pontos[item_proximo["ponto_id"]]
+    proximo = {
+        "id": ponto_proximo["id"],
+        "nome": ponto_proximo["nome"],
+        "opcional": item_proximo.get("opcional", ponto_proximo.get("opcional", False)),
+    }
+
+    if proximo["opcional"]:
+        indice_alternativo = indice_atual + 2
+        while indice_alternativo < len(rota):
+            item_alternativo = rota[indice_alternativo]
+            if not item_alternativo.get("opcional", False):
+                ponto_alternativo = pontos[item_alternativo["ponto_id"]]
+                proximo["alternativa"] = {
+                    "id": ponto_alternativo["id"],
+                    "nome": ponto_alternativo["nome"],
+                }
+                break
+            indice_alternativo += 1
+
+    return proximo
+
+
 def _analisar_registros_esparsos(ponto_anterior: str, ponto_atual: str) -> dict | None:
     rota = carregar_rota()
     pontos = carregar_pontos()
@@ -65,34 +97,63 @@ def _analisar_registros_esparsos(ponto_anterior: str, ponto_atual: str) -> dict 
     _, indice_atual = min(candidatos, key=lambda item: item[0])
     item_atual = rota[indice_atual]
 
-    proximo = None
-    if indice_atual + 1 < len(rota):
-        item_proximo = rota[indice_atual + 1]
-        ponto_proximo = pontos[item_proximo["ponto_id"]]
-        proximo = {
-            "id": ponto_proximo["id"],
-            "nome": ponto_proximo["nome"],
-            "opcional": item_proximo.get("opcional", ponto_proximo.get("opcional", False)),
-        }
-
-        if proximo["opcional"]:
-            indice_alternativo = indice_atual + 2
-            while indice_alternativo < len(rota):
-                item_alternativo = rota[indice_alternativo]
-                if not item_alternativo.get("opcional", False):
-                    ponto_alternativo = pontos[item_alternativo["ponto_id"]]
-                    proximo["alternativa"] = {
-                        "id": ponto_alternativo["id"],
-                        "nome": ponto_alternativo["nome"],
-                    }
-                    break
-                indice_alternativo += 1
-
     return {
         "ponto_anterior": pontos[ponto_anterior]["nome"],
         "ponto_atual": pontos[ponto_atual]["nome"],
         "sentido": item_atual["sentido_apos"],
-        "proximo": proximo,
+        "proximo": _proximo_da_ocorrencia(rota, indice_atual, pontos),
+    }
+
+
+def _ultima_saida_recente_da_garagem(agora: datetime) -> str | None:
+    with CAMINHO_HORARIOS.open("r", encoding="utf-8") as arquivo:
+        horarios = json.load(arquivo)
+
+    candidatos = []
+    for viagem in horarios.get("principal", []):
+        if viagem.get("origem") != "Garagem":
+            continue
+
+        hora, minuto = map(int, viagem["hora"].split(":"))
+        previsto = agora.replace(hour=hora, minute=minuto, second=0, microsecond=0)
+        diferenca = agora - previsto
+
+        if timedelta(0) <= diferenca <= timedelta(minutes=JANELA_SAIDA_GARAGEM_MINUTOS):
+            candidatos.append(previsto)
+
+    if not candidatos:
+        return None
+
+    return max(candidatos).strftime("%H:%M")
+
+
+def _estimar_primeiro_registro_por_horario(ponto_id: str, agora: datetime) -> dict | None:
+    horario_garagem = _ultima_saida_recente_da_garagem(agora)
+    if horario_garagem is None:
+        return None
+
+    rota = carregar_rota()
+    pontos = carregar_pontos()
+
+    ocorrencias = _ocorrencias(rota, ponto_id)
+    if not ocorrencias:
+        return None
+
+    # Uma saída da Garagem inicia o percurso em direção à rua.
+    # Para pontos repetidos, como Biblioteca e RU, usamos a ocorrência da ida.
+    indice_atual = None
+    for indice in ocorrencias:
+        if rota[indice]["sentido_apos"] == "RUA":
+            indice_atual = indice
+            break
+
+    if indice_atual is None:
+        return None
+
+    return {
+        "horario_garagem": horario_garagem,
+        "sentido": "RUA",
+        "proximo": _proximo_da_ocorrencia(rota, indice_atual, pontos),
     }
 
 
@@ -153,16 +214,39 @@ def montar_localizacao_atual() -> str:
     ]
 
     resultado = _estado["resultado_rota"]
-    if resultado is None:
-        linhas.extend(
-            [
-                "",
-                "ℹ️ Ainda preciso de outra confirmação em um ponto diferente",
-                "para estimar o sentido e o próximo ponto.",
-            ]
-        )
-    else:
+    if resultado is not None:
         linhas.extend(["", formatar_situacao_rota(resultado)])
+    else:
+        estimativa = _estimar_primeiro_registro_por_horario(_estado["ponto_atual"], horario)
+
+        if estimativa is not None:
+            linhas.extend(
+                [
+                    "",
+                    f"🕐 Pelo horário oficial, o ônibus deve ter saído da Garagem às {estimativa['horario_garagem']}.",
+                    "➡️ Sentido provável: RUA",
+                ]
+            )
+
+            proximo = estimativa.get("proximo")
+            if proximo:
+                if proximo["opcional"]:
+                    linhas.append(f"⏭️ Próximo esperado: {proximo['nome']} (se houver parada)")
+                    alternativa = proximo.get("alternativa")
+                    if alternativa:
+                        linhas.append(f"↪️ Caso não pare: {alternativa['nome']}")
+                else:
+                    linhas.append(f"⏭️ Próximo esperado: {proximo['nome']}")
+
+            linhas.append("ℹ️ Essa indicação usa o horário previsto, não uma confirmação de saída.")
+        else:
+            linhas.extend(
+                [
+                    "",
+                    "ℹ️ Ainda preciso de outra confirmação em um ponto diferente",
+                    "para estimar o sentido e o próximo ponto.",
+                ]
+            )
 
     linhas.extend(
         [
