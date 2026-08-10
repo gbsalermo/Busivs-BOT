@@ -157,6 +157,52 @@ def _estimar_primeiro_registro_por_horario(ponto_id: str, agora: datetime) -> di
     }
 
 
+def _tempo_desde_confirmacao(horario: datetime | None, agora: datetime | None = None) -> str:
+    if horario is None:
+        return "horário desconhecido"
+
+    agora = agora or datetime.now(FUSO_LOCAL)
+    segundos = max(0, int((agora - horario).total_seconds()))
+
+    if segundos < 60:
+        return "agora mesmo"
+
+    minutos = segundos // 60
+    if minutos < 60:
+        return f"há {minutos} min"
+
+    horas = minutos // 60
+    minutos_restantes = minutos % 60
+
+    if minutos_restantes == 0:
+        return f"há {horas}h"
+
+    return f"há {horas}h {minutos_restantes}min"
+
+
+def _possivel_atraso_portao_1(
+    ponto_id: str,
+    horario_confirmacao: datetime | None,
+    resultado_rota: dict | None,
+) -> bool:
+    """Primeira regra experimental de atraso: apenas Portão 1 às 10:20."""
+    if horario_confirmacao is None:
+        return False
+
+    if ponto_id not in {"biblioteca", "pavilhao_2"}:
+        return False
+
+    # Biblioteca também aparece no retorno. Se já sabemos que o sentido é RU,
+    # não devemos interpretar esse registro como risco de atraso no Portão 1.
+    if resultado_rota is not None and resultado_rota.get("sentido") != "RUA":
+        return False
+
+    inicio = horario_confirmacao.replace(hour=10, minute=15, second=0, microsecond=0)
+    fim = horario_confirmacao.replace(hour=10, minute=20, second=59, microsecond=999999)
+
+    return inicio <= horario_confirmacao <= fim
+
+
 def registrar_passagem(ponto_id: str, telegram_id: int | None = None) -> dict:
     pontos = carregar_pontos()
 
@@ -199,6 +245,18 @@ def registrar_passagem(ponto_id: str, telegram_id: int | None = None) -> dict:
 
 def montar_localizacao_atual() -> str:
     if _estado["ponto_atual"] is None:
+        agora = datetime.now(FUSO_LOCAL)
+        horario_garagem = _ultima_saida_recente_da_garagem(agora)
+
+        if horario_garagem is not None:
+            return (
+                "🚌 Ainda não há confirmação de passagem.\n\n"
+                f"🕐 Pelo horário oficial, o ônibus deve ter saído da Garagem às {horario_garagem}.\n"
+                "➡️ Sentido provável: RUA\n"
+                "📍 Próxima confirmação esperada: RU / Residências\n\n"
+                "ℹ️ Essa informação é baseada apenas no horário previsto, não em uma confirmação real."
+            )
+
         return (
             "🚌 Ainda não há confirmação de passagem nesta sessão.\n\n"
             "Use 📍 Informar passagem para registrar quando o ônibus passar por um ponto."
@@ -206,18 +264,31 @@ def montar_localizacao_atual() -> str:
 
     horario = _estado["horario"]
     horario_texto = horario.strftime("%H:%M:%S") if horario else "--:--"
-    ponto_nome = _nome_ponto(_estado["ponto_atual"])
+    tempo_texto = _tempo_desde_confirmacao(horario)
+    ponto_id = _estado["ponto_atual"]
+    ponto_nome = _nome_ponto(ponto_id)
+    resultado = _estado["resultado_rota"]
 
     linhas = [
         f"📍 Última confirmação: {ponto_nome}",
-        f"🕐 Horário: {horario_texto}",
+        f"🕐 {tempo_texto} ({horario_texto})",
     ]
 
-    resultado = _estado["resultado_rota"]
+    if _possivel_atraso_portao_1(ponto_id, horario, resultado):
+        linhas.extend(
+            [
+                "",
+                "⚠️ Possível atraso no Portão 1",
+                "🚪 Passagem esperada por volta de 10:20.",
+                f"📍 O último registro ainda está em {ponto_nome}.",
+                "ℹ️ É uma estimativa, não uma confirmação de atraso.",
+            ]
+        )
+
     if resultado is not None:
         linhas.extend(["", formatar_situacao_rota(resultado)])
     else:
-        estimativa = _estimar_primeiro_registro_por_horario(_estado["ponto_atual"], horario)
+        estimativa = _estimar_primeiro_registro_por_horario(ponto_id, horario)
 
         if estimativa is not None:
             linhas.extend(
@@ -251,7 +322,7 @@ def montar_localizacao_atual() -> str:
     linhas.extend(
         [
             "",
-            "🧪 Dados temporários desta Etapa 3. Eles são apagados ao reiniciar o bot.",
+            "🧪 Dados temporários desta Etapa 5. Eles são apagados ao reiniciar o bot.",
         ]
     )
 
