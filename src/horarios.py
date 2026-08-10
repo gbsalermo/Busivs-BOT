@@ -16,7 +16,7 @@ def _minutos(horario: str) -> int:
     return hora * 60 + minuto
 
 
-def proximo_horario(veiculo: str = "principal", agora: datetime | None = None) -> str | None:
+def proximo_horario(veiculo: str = "principal", agora: datetime | None = None) -> dict | None:
     dados = carregar_horarios()
     horarios = dados.get(veiculo, [])
 
@@ -27,7 +27,7 @@ def proximo_horario(veiculo: str = "principal", agora: datetime | None = None) -
     minutos_agora = agora.hour * 60 + agora.minute
 
     for horario in horarios:
-        if _minutos(horario) >= minutos_agora:
+        if _minutos(horario["hora"]) >= minutos_agora:
             return horario
 
     return None
@@ -36,23 +36,21 @@ def proximo_horario(veiculo: str = "principal", agora: datetime | None = None) -
 def montar_resumo_horarios(veiculo: str = "principal", agora: datetime | None = None) -> str:
     dados = carregar_horarios()
     horarios = dados.get(veiculo, [])
-
     nome = "Principal" if veiculo == "principal" else "Micro"
 
     if not horarios:
-        return (
-            f"⏰ {nome}\n\n"
-            "Os horários oficiais ainda não foram cadastrados no sistema."
-        )
+        return f"⏰ {nome}\n\nOs horários ainda não foram cadastrados no sistema."
 
     agora = agora or datetime.now(FUSO_LOCAL)
+    primeiro = horarios[0]
+    ultimo = horarios[-1]
 
     if agora.weekday() >= 5:
         return (
             f"⏰ {nome}\n\n"
             "O Circular opera de segunda a sexta-feira.\n\n"
-            f"Primeiro horário: {horarios[0]}\n"
-            f"Último horário: {horarios[-1]}"
+            f"Primeiro horário: {primeiro['hora']} - {primeiro['origem']}\n"
+            f"Último horário: {ultimo['hora']} - {ultimo['origem']}"
         )
 
     proximo = proximo_horario(veiculo, agora)
@@ -61,8 +59,8 @@ def montar_resumo_horarios(veiculo: str = "principal", agora: datetime | None = 
         return (
             f"⏰ {nome}\n\n"
             "As viagens de hoje já encerraram.\n\n"
-            f"Primeiro horário: {horarios[0]}\n"
-            f"Último horário: {horarios[-1]}"
+            f"Primeiro horário: {primeiro['hora']} - {primeiro['origem']}\n"
+            f"Último horário: {ultimo['hora']} - {ultimo['origem']}"
         )
 
     indice = horarios.index(proximo)
@@ -70,15 +68,49 @@ def montar_resumo_horarios(veiculo: str = "principal", agora: datetime | None = 
 
     mensagem = (
         f"⏰ {nome}\n\n"
-        f"Próxima saída: {proximo}\n"
+        f"Próxima saída: {proximo['hora']}\n"
+        f"Saída de: {proximo['origem']}\n"
     )
 
     if depois:
-        mensagem += f"Depois: {depois}\n"
+        mensagem += f"\nDepois: {depois['hora']} - {depois['origem']}\n"
 
     mensagem += (
-        f"\nPrimeiro horário: {horarios[0]}\n"
-        f"Último horário: {horarios[-1]}"
+        f"\nPrimeiro horário: {primeiro['hora']}\n"
+        f"Último horário: {ultimo['hora']}"
     )
 
     return mensagem
+
+
+def listar_horarios(veiculo: str = "principal") -> str:
+    dados = carregar_horarios()
+    horarios = dados.get(veiculo, [])
+    nome = "Principal" if veiculo == "principal" else "Micro"
+
+    if not horarios:
+        return f"📋 {nome}\n\nOs horários ainda não foram cadastrados no sistema."
+
+    titulos = {
+        "manha": "🌅 Manhã",
+        "meio_dia": "☀️ Meio-dia",
+        "tarde": "🌤️ Tarde",
+        "noite": "🌙 Noite",
+    }
+
+    linhas = [f"📋 Horários - {nome}", ""]
+    periodo_atual = None
+
+    for horario in horarios:
+        periodo = horario["periodo"]
+
+        if periodo != periodo_atual:
+            if periodo_atual is not None:
+                linhas.append("")
+            linhas.append(titulos.get(periodo, periodo.title()))
+            periodo_atual = periodo
+
+        linhas.append(f"{horario['hora']} - {horario['origem']}")
+
+    linhas.extend(["", "Operação regular: segunda a sexta-feira."])
+    return "\n".join(linhas)
