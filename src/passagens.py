@@ -157,6 +157,29 @@ def _estimar_primeiro_registro_por_horario(ponto_id: str, agora: datetime) -> di
     }
 
 
+def _tempo_desde_confirmacao(horario: datetime | None, agora: datetime | None = None) -> str:
+    if horario is None:
+        return "horário desconhecido"
+
+    agora = agora or datetime.now(FUSO_LOCAL)
+    segundos = max(0, int((agora - horario).total_seconds()))
+
+    if segundos < 60:
+        return "agora mesmo"
+
+    minutos = segundos // 60
+    if minutos < 60:
+        return f"há {minutos} min"
+
+    horas = minutos // 60
+    minutos_restantes = minutos % 60
+
+    if minutos_restantes == 0:
+        return f"há {horas}h"
+
+    return f"há {horas}h {minutos_restantes}min"
+
+
 def registrar_passagem(ponto_id: str, telegram_id: int | None = None) -> dict:
     pontos = carregar_pontos()
 
@@ -206,11 +229,12 @@ def montar_localizacao_atual() -> str:
 
     horario = _estado["horario"]
     horario_texto = horario.strftime("%H:%M:%S") if horario else "--:--"
+    tempo_texto = _tempo_desde_confirmacao(horario)
     ponto_nome = _nome_ponto(_estado["ponto_atual"])
 
     linhas = [
         f"📍 Última confirmação: {ponto_nome}",
-        f"🕐 Horário: {horario_texto}",
+        f"🕐 {tempo_texto} ({horario_texto})",
     ]
 
     resultado = _estado["resultado_rota"]
@@ -251,7 +275,7 @@ def montar_localizacao_atual() -> str:
     linhas.extend(
         [
             "",
-            "🧪 Dados temporários desta Etapa 3. Eles são apagados ao reiniciar o bot.",
+            "🧪 Dados temporários desta Etapa 5. Eles são apagados ao reiniciar o bot.",
         ]
     )
 
