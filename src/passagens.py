@@ -2,18 +2,14 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from horarios import (
-    aguardando_proxima_saida,
-    proximo_horario,
-    viagem_em_andamento,
-    viagem_em_retorno,
-)
+from horarios import aguardando_proxima_saida, proximo_horario, viagem_em_retorno
 from rota import carregar_pontos, carregar_rota
 
 FUSO_LOCAL = timezone(timedelta(hours=-3))
 CAMINHO_HORARIOS = Path(__file__).resolve().parent.parent / "data" / "horarios_letivo.json"
 JANELA_SAIDA_GARAGEM_MINUTOS = 35
 JANELA_CONFIRMACAO_RECENTE_MINUTOS = 30
+LIMITE_INTERVALO_BLOCO_MINUTOS = 60
 
 _estado = {
     "ponto_anterior": None,
@@ -114,17 +110,65 @@ def _analisar_registros_esparsos(ponto_anterior: str, ponto_atual: str) -> dict 
     }
 
 
-def _ultima_saida_recente_da_garagem(agora: datetime) -> str | None:
+def _carregar_horarios_principal() -> list[dict]:
     with CAMINHO_HORARIOS.open("r", encoding="utf-8") as arquivo:
         horarios = json.load(arquivo)
 
+    return horarios.get("principal", [])
+
+
+def _minutos_horario(hora_texto: str) -> int:
+    hora, minuto = map(int, hora_texto.split(":"))
+    return hora * 60 + minuto
+
+
+def _horario_previsto_hoje(hora_texto: str, agora: datetime) -> datetime:
+    hora, minuto = map(int, hora_texto.split(":"))
+    return agora.replace(hour=hora, minute=minuto, second=0, microsecond=0)
+
+
+def _quebra_de_bloco_mais_recente(agora: datetime) -> datetime | None:
+    horarios = _carregar_horarios_principal()
+    quebra_mais_recente = None
+
+    for anterior, proxima in zip(horarios, horarios[1:]):
+        intervalo = _minutos_horario(proxima["hora"]) - _minutos_horario(anterior["hora"])
+        if intervalo <= LIMITE_INTERVALO_BLOCO_MINUTOS:
+            continue
+
+        inicio_novo_bloco = _horario_previsto_hoje(proxima["hora"], agora)
+        if inicio_novo_bloco <= agora:
+            quebra_mais_recente = inicio_novo_bloco
+
+    return quebra_mais_recente
+
+
+def _aguardando_em_lacuna_de_bloco(agora: datetime) -> bool:
+    aguardando = aguardando_proxima_saida("principal", agora)
+    if aguardando is None or aguardando.get("proxima") is None:
+        return False
+
+    horarios = _carregar_horarios_principal()
+    proxima_hora = aguardando["proxima"]["hora"]
+
+    for indice, horario in enumerate(horarios):
+        if horario["hora"] != proxima_hora or indice == 0:
+            continue
+
+        anterior = horarios[indice - 1]
+        intervalo = _minutos_horario(proxima_hora) - _minutos_horario(anterior["hora"])
+        return intervalo > LIMITE_INTERVALO_BLOCO_MINUTOS
+
+    return False
+
+
+def _ultima_saida_recente_da_garagem(agora: datetime) -> str | None:
     candidatos = []
-    for viagem in horarios.get("principal", []):
+    for viagem in _carregar_horarios_principal():
         if viagem.get("origem") != "Garagem":
             continue
 
-        hora, minuto = map(int, viagem["hora"].split(":"))
-        previsto = agora.replace(hour=hora, minute=minuto, second=0, microsecond=0)
+        previsto = _horario_previsto_hoje(viagem["hora"], agora)
         diferenca = agora - previsto
 
         if timedelta(0) <= diferenca <= timedelta(minutes=JANELA_SAIDA_GARAGEM_MINUTOS):
@@ -196,11 +240,6 @@ def _tem_confirmacao_recente(agora: datetime) -> bool:
     return timedelta(0) <= diferenca <= timedelta(minutes=JANELA_CONFIRMACAO_RECENTE_MINUTOS)
 
 
-def _horario_previsto_hoje(hora_texto: str, agora: datetime) -> datetime:
-    hora, minuto = map(int, hora_texto.split(":"))
-    return agora.replace(hour=hora, minute=minuto, second=0, microsecond=0)
-
-
 def _estado_expirou(agora: datetime) -> bool:
     horario = _estado["horario"]
     if horario is None:
@@ -209,21 +248,12 @@ def _estado_expirou(agora: datetime) -> bool:
     if horario.date() != agora.date():
         return True
 
-    aguardando = aguardando_proxima_saida("principal", agora)
-    if aguardando is not None and not _tem_confirmacao_recente(agora):
+    quebra_recente = _quebra_de_bloco_mais_recente(agora)
+    if quebra_recente is not None and horario < quebra_recente:
         return True
 
-    viagem_atual = viagem_em_andamento("principal", agora)
-    if viagem_atual is not None:
-        inicio = _horario_previsto_hoje(viagem_atual["hora"], agora)
-        if horario < inicio:
-            return True
-
-    retorno = viagem_em_retorno("principal", agora)
-    if retorno is not None:
-        inicio = _horario_previsto_hoje(retorno["viagem"]["hora"], agora)
-        if horario < inicio:
-            return True
+    if _aguardando_em_lacuna_de_bloco(agora) and not _tem_confirmacao_recente(agora):
+        return True
 
     return False
 
@@ -493,7 +523,7 @@ def montar_localizacao_atual() -> str:
     linhas.extend(
         [
             "",
-            "🧪 Dados temporários desta Etapa 5. Eles expiram quando deixam de representar a viagem atual.",
+            "🧪 Dados temporários desta Etapa 5. Eles expiram ao fim do bloco operacional.",
         ]
     )
 
