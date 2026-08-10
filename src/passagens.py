@@ -1,3 +1,23 @@
+"""Estado colaborativo e resposta de localização do BUSIVS BOT.
+
+Este módulo é o centro da lógica de "Onde está o ônibus?". Ele combina três
+fontes de informação:
+
+1. confirmações reais enviadas pelos alunos;
+2. sequência conhecida da rota;
+3. horários oficiais usados apenas como referência/estimativa.
+
+O estado é propositalmente mantido em memória. O objetivo atual não é guardar
+histórico permanente, e sim representar o contexto operacional do ônibus agora.
+As confirmações expiram naturalmente entre blocos operacionais ou na mudança de
+dia.
+
+Princípio importante: confirmação real e estimativa nunca devem ser tratadas
+como a mesma coisa. Uma confirmação recente tem prioridade sobre inferências de
+horário, e horários são usados apenas para preencher contexto quando faltam
+dados colaborativos.
+"""
+
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -5,14 +25,30 @@ from pathlib import Path
 from horarios import aguardando_proxima_saida, proximo_horario, viagem_em_andamento, viagem_em_retorno
 from rota import carregar_pontos, carregar_rota
 
+# Fuso usado em todos os horários registrados em memória.
 FUSO_LOCAL = timezone(timedelta(hours=-3))
 CAMINHO_HORARIOS = Path(__file__).resolve().parent.parent / "data" / "horarios_letivo.json"
+
+# Janela em que uma saída oficial passada ainda pode servir de contexto para um
+# ônibus atrasado. Não significa que o ônibus realmente esteja circulando.
 JANELA_SAIDA_RECENTE_MINUTOS = 45
+
+# Antes de uma saída programada da Garagem, o bot pode informar que o veículo
+# provavelmente está aguardando lá.
 JANELA_PRE_SAIDA_GARAGEM_MINUTOS = 5
+
+# Confirmações com até 30 minutos são consideradas recentes em regras de
+# proteção contra falsos registros durante possíveis atrasos.
 JANELA_CONFIRMACAO_RECENTE_MINUTOS = 30
+
+# Saídas separadas por mais de 60 minutos iniciam um novo bloco operacional.
 LIMITE_INTERVALO_BLOCO_MINUTOS = 60
+
+# Histórico curto usado apenas para corrigir/inferir sequências colaborativas.
 MAX_HISTORICO_REGISTROS = 20
 
+# Estado corrente do ônibus. Esse dicionário é compartilhado pelo processo e é
+# resetado quando o contexto operacional expira.
 _estado = {
     "ponto_anterior": None,
     "ponto_atual": None,
@@ -21,10 +57,17 @@ _estado = {
     "resultado_rota": None,
 }
 
+# Evidências recentes de passagem. Diferente de um banco de dados, este
+# histórico existe apenas durante a execução/bloco atual.
 _historico_passagens = []
 
 
 def limpar_estado() -> None:
+    """Apaga localização atual e histórico colaborativo em memória.
+
+    É usado na troca de bloco operacional, mudança de dia e em testes. O bot
+    continua rodando; apenas o contexto antigo do ônibus é descartado.
+    """
     _estado.update(
         {
             "ponto_anterior": None,
@@ -38,20 +81,27 @@ def limpar_estado() -> None:
 
 
 def obter_estado() -> dict:
+    """Retorna uma cópia rasa do estado atual para leitura/testes."""
     return _estado.copy()
 
 
 def obter_historico() -> list[dict]:
+    """Retorna cópias dos registros recentes sem expor a lista interna."""
     return [registro.copy() for registro in _historico_passagens]
 
 
 def _nome_ponto(ponto_id: str) -> str:
+    """Converte um ID de ponto para o nome amigável cadastrado no JSON."""
     pontos = carregar_pontos()
     ponto = pontos.get(ponto_id)
     return ponto["nome"] if ponto else ponto_id
 
 
 def _ocorrencias(rota: list[dict], ponto_id: str) -> list[int]:
+    """Retorna todos os índices em que um ponto aparece na rota.
+
+    Isso é necessário porque RU e Biblioteca aparecem mais de uma vez.
+    """
     return [
         indice
         for indice, item in enumerate(rota)
@@ -59,7 +109,15 @@ def _ocorrencias(rota: list[dict], ponto_id: str) -> list[int]:
     ]
 
 
-def _proximo_da_ocorrencia(rota: list[dict], indice_atual: int, pontos: dict[str, dict]) -> dict | None:
+def _proximo_da_ocorrencia(
+    rota: list[dict], indice_atual: int, pontos: dict[str, dict]
+) -> dict | None:
+    """Monta o próximo ponto esperado a partir de uma ocorrência da rota.
+
+    Quando o próximo ponto é opcional, também procura a próxima alternativa
+    obrigatória. Assim o Telegram pode informar o que acontece caso o ônibus
+    não pare no ponto opcional.
+    """
     if indice_atual + 1 >= len(rota):
         return None
 
@@ -87,7 +145,18 @@ def _proximo_da_ocorrencia(rota: list[dict], indice_atual: int, pontos: dict[str
     return proximo
 
 
-def _analisar_registros_esparsos(ponto_anterior: str, ponto_atual: str) -> dict | None:
+def _analisar_registros_esparsos(
+    ponto_anterior: str, ponto_atual: str
+) -> dict | None:
+    """Tenta encaixar duas confirmações em qualquer trecho crescente da rota.
+
+    Diferente de ``rota.analisar_trecho``, aqui os pontos não precisam ser
+    imediatamente consecutivos. Isso é importante em um sistema colaborativo:
+    nem todo ponto receberá uma confirmação.
+
+    Quando há mais de uma combinação possível, escolhemos a menor distância na
+    rota, isto é, a explicação mais curta compatível com os dois registros.
+    """
     rota = carregar_rota()
     pontos = carregar_pontos()
 
@@ -119,7 +188,14 @@ def _analisar_registros_esparsos(ponto_anterior: str, ponto_atual: str) -> dict 
     }
 
 
-def _registrar_no_historico(ponto_id: str, horario: datetime, telegram_id: int | None) -> None:
+def _registrar_no_historico(
+    ponto_id: str, horario: datetime, telegram_id: int | None
+) -> None:
+    """Adiciona uma evidência ao histórico curto de confirmações.
+
+    O limite impede crescimento indefinido da memória. Quando excedido, os
+    registros mais antigos são descartados primeiro.
+    """
     _historico_passagens.append(
         {
             "ponto_id": ponto_id,
@@ -133,12 +209,19 @@ def _registrar_no_historico(ponto_id: str, horario: datetime, telegram_id: int |
 
 
 def _resultado_com_historico(ponto_atual: str) -> dict | None:
+    """Busca no histórico a melhor confirmação anterior para o ponto atual.
+
+    A busca começa do registro mais recente e recua até encontrar uma sequência
+    compatível. Isso permite ignorar uma confirmação equivocada sem bloquear as
+    confirmações corretas que vêm depois.
+    """
     total = len(_historico_passagens)
 
     for indice in range(total - 1, -1, -1):
         registro = _historico_passagens[indice]
         ponto_anterior = registro["ponto_id"]
 
+        # Repetir o mesmo ponto não ajuda a inferir deslocamento.
         if ponto_anterior == ponto_atual:
             continue
 
@@ -158,6 +241,7 @@ def _resultado_com_historico(ponto_atual: str) -> dict | None:
 
 
 def _carregar_horarios_principal() -> list[dict]:
+    """Carrega apenas as saídas cadastradas para o ônibus Principal."""
     with CAMINHO_HORARIOS.open("r", encoding="utf-8") as arquivo:
         horarios = json.load(arquivo)
 
@@ -165,16 +249,24 @@ def _carregar_horarios_principal() -> list[dict]:
 
 
 def _minutos_horario(hora_texto: str) -> int:
+    """Converte ``HH:MM`` para minutos desde o início do dia."""
     hora, minuto = map(int, hora_texto.split(":"))
     return hora * 60 + minuto
 
 
 def _horario_previsto_hoje(hora_texto: str, agora: datetime) -> datetime:
+    """Transforma um ``HH:MM`` oficial em ``datetime`` no dia de ``agora``."""
     hora, minuto = map(int, hora_texto.split(":"))
     return agora.replace(hour=hora, minute=minuto, second=0, microsecond=0)
 
 
 def _quebra_de_bloco_mais_recente(agora: datetime) -> datetime | None:
+    """Localiza o início do bloco operacional mais recente já alcançado.
+
+    Duas saídas separadas por mais de ``LIMITE_INTERVALO_BLOCO_MINUTOS`` marcam
+    uma quebra. O horário da saída seguinte é considerado o início do novo
+    bloco.
+    """
     horarios = _carregar_horarios_principal()
     quebra_mais_recente = None
 
@@ -191,6 +283,11 @@ def _quebra_de_bloco_mais_recente(agora: datetime) -> datetime | None:
 
 
 def _aguardando_em_lacuna_de_bloco(agora: datetime) -> bool:
+    """Verifica se a espera atual está dentro de uma quebra real de bloco.
+
+    Nem toda espera entre duas saídas encerra o contexto. Apenas lacunas acima
+    do limite de 60 minutos devem invalidar uma localização antiga.
+    """
     aguardando = aguardando_proxima_saida("principal", agora)
     if aguardando is None or aguardando.get("proxima") is None:
         return False
@@ -210,6 +307,12 @@ def _aguardando_em_lacuna_de_bloco(agora: datetime) -> bool:
 
 
 def _ultima_saida_oficial_recente(agora: datetime) -> dict | None:
+    """Retorna a última saída oficial ocorrida nos últimos 45 minutos.
+
+    A origem pode ser Garagem ou RU. A função existe para dar contexto a uma
+    primeira confirmação quando uma volta pode estar atrasada. Ela não confirma
+    que a saída realmente aconteceu no horário.
+    """
     candidatos = []
 
     for viagem in _carregar_horarios_principal():
@@ -231,6 +334,11 @@ def _ultima_saida_oficial_recente(agora: datetime) -> dict | None:
 
 
 def _proxima_saida_garagem_em_breve(agora: datetime) -> dict | None:
+    """Detecta uma saída da Garagem prevista para os próximos cinco minutos.
+
+    É usada somente quando não existe localização confirmada, permitindo
+    responder que o ônibus provavelmente está na Garagem prestes a sair.
+    """
     proxima = proximo_horario("principal", agora)
     if proxima is None or proxima.get("origem") != "Garagem":
         return None
@@ -248,7 +356,16 @@ def _proxima_saida_garagem_em_breve(agora: datetime) -> dict | None:
     }
 
 
-def _estimar_primeiro_registro_por_horario(ponto_id: str, agora: datetime) -> dict | None:
+def _estimar_primeiro_registro_por_horario(
+    ponto_id: str, agora: datetime
+) -> dict | None:
+    """Usa uma saída oficial recente para contextualizar a primeira confirmação.
+
+    Sem uma confirmação anterior não é possível deduzir o sentido apenas pela
+    rota. Nesta situação, uma saída recente fornece uma hipótese de sentido RUA
+    e permite indicar o próximo ponto esperado. A mensagem deixa explícito que
+    o horário é apenas referência.
+    """
     saida = _ultima_saida_oficial_recente(agora)
     if saida is None:
         return None
@@ -277,7 +394,10 @@ def _estimar_primeiro_registro_por_horario(ponto_id: str, agora: datetime) -> di
     }
 
 
-def _tempo_desde_confirmacao(horario: datetime | None, agora: datetime | None = None) -> str:
+def _tempo_desde_confirmacao(
+    horario: datetime | None, agora: datetime | None = None
+) -> str:
+    """Formata a idade de uma confirmação em linguagem amigável."""
     if horario is None:
         return "horário desconhecido"
 
@@ -301,6 +421,7 @@ def _tempo_desde_confirmacao(horario: datetime | None, agora: datetime | None = 
 
 
 def _tem_confirmacao_recente(agora: datetime) -> bool:
+    """Informa se o estado atual foi confirmado nos últimos 30 minutos."""
     horario = _estado["horario"]
     if horario is None:
         return False
@@ -310,6 +431,15 @@ def _tem_confirmacao_recente(agora: datetime) -> bool:
 
 
 def _estado_expirou(agora: datetime) -> bool:
+    """Decide se a localização em memória pertence a um contexto antigo.
+
+    O estado expira quando:
+    - pertence a outro dia;
+    - ficou antes do início do bloco operacional atual;
+    - estamos numa longa lacuna entre blocos e não há confirmação recente.
+
+    Uma simples mudança de saída dentro do mesmo bloco não apaga o contexto.
+    """
     horario = _estado["horario"]
     if horario is None:
         return False
@@ -328,11 +458,13 @@ def _estado_expirou(agora: datetime) -> bool:
 
 
 def _limpar_estado_se_expirado(agora: datetime) -> None:
+    """Limpa o estado somente quando ``_estado_expirou`` indicar necessidade."""
     if _estado_expirou(agora):
         limpar_estado()
 
 
 def _formatar_movimento(resultado: dict) -> str:
+    """Transforma uma inferência de rota em texto para o usuário."""
     sentido = resultado.get("sentido")
     proximo = resultado.get("proximo")
     seta = "➡️" if sentido == "RUA" else "⬅️"
@@ -340,6 +472,8 @@ def _formatar_movimento(resultado: dict) -> str:
     linhas = []
 
     if proximo is None:
+        # O RU é simultaneamente início e fim da rota. Ao chegar nele no fim da
+        # sequência não é seguro afirmar o sentido da próxima volta.
         if resultado.get("ponto_atual_id") == "ru":
             linhas.extend(
                 [
@@ -377,6 +511,7 @@ def _formatar_movimento(resultado: dict) -> str:
 
 
 def _formatar_retorno(retorno: dict, proxima: dict | None) -> str:
+    """Formata uma janela estimada posterior à passagem no Portão 1."""
     linhas = [
         "↩️ Percurso de retorno",
         "🚌 Pelo horário, o ônibus provavelmente está no percurso de retorno.",
@@ -398,6 +533,7 @@ def _formatar_retorno(retorno: dict, proxima: dict | None) -> str:
 
 
 def _formatar_aguardando_saida(aguardando: dict) -> str:
+    """Formata a situação estimada entre o fim de uma volta e a próxima saída."""
     proxima = aguardando.get("proxima")
     origem = aguardando["origem"]
 
@@ -420,6 +556,7 @@ def _formatar_aguardando_saida(aguardando: dict) -> str:
 
 
 def _formatar_viagem_sem_confirmacao(viagem: dict) -> str:
+    """Formata uma viagem prevista em andamento sem confirmação colaborativa."""
     return (
         "🚌 Há uma volta prevista em andamento.\n"
         f"🕐 Saída oficial: {viagem['hora']} — {viagem['origem']}\n"
@@ -429,6 +566,7 @@ def _formatar_viagem_sem_confirmacao(viagem: dict) -> str:
 
 
 def _formatar_saida_recente_sem_confirmacao(saida: dict) -> str:
+    """Explica que uma saída recente ainda pode estar atrasada/em percurso."""
     return (
         "🚌 Uma saída oficial recente ainda pode estar em percurso por causa de atraso.\n"
         f"🕐 Saída prevista: {saida['hora']} — {saida['origem']}\n"
@@ -438,6 +576,7 @@ def _formatar_saida_recente_sem_confirmacao(saida: dict) -> str:
 
 
 def _formatar_pre_saida_garagem(saida: dict) -> str:
+    """Formata a previsão específica dos cinco minutos antes de sair da Garagem."""
     return (
         "🅿️ Sem confirmação recente, o ônibus provavelmente está na Garagem.\n\n"
         "⏰ Próxima saída prevista:\n"
@@ -446,7 +585,10 @@ def _formatar_pre_saida_garagem(saida: dict) -> str:
     )
 
 
-def _confirmacao_anterior_ao_retorno(horario: datetime | None, retorno: dict | None) -> bool:
+def _confirmacao_anterior_ao_retorno(
+    horario: datetime | None, retorno: dict | None
+) -> bool:
+    """Verifica se uma confirmação ocorreu antes da janela estimada de retorno."""
     if horario is None or retorno is None:
         return False
 
@@ -460,6 +602,13 @@ def _possivel_atraso_portao_1(
     horario_confirmacao: datetime | None,
     resultado_rota: dict | None,
 ) -> bool:
+    """Aplica a regra experimental de atraso estudada para a saída das 10h.
+
+    Hoje a regra é propositalmente estreita: entre 10:15 e 10:20, uma
+    confirmação na Biblioteca/Pavilhão II ainda no sentido RUA pode indicar que
+    a passagem prevista no Portão 1 está atrasada. Não generalizar sem dados de
+    uso real.
+    """
     if horario_confirmacao is None:
         return False
 
@@ -476,6 +625,22 @@ def _possivel_atraso_portao_1(
 
 
 def registrar_passagem(ponto_id: str, telegram_id: int | None = None) -> dict:
+    """Registra uma confirmação colaborativa de passagem.
+
+    Fluxo:
+    1. valida se o ponto existe;
+    2. descarta estado de bloco antigo;
+    3. bloqueia registros em espera fora de circulação quando não há evidência
+       recente de atraso;
+    4. ignora duplicata do ponto atual;
+    5. tenta inferir movimento usando o histórico recente;
+    6. atualiza o estado para a confirmação mais nova;
+    7. adiciona a evidência ao histórico curto.
+
+    A confirmação mais recente vira o ponto atual mesmo quando ainda não há
+    informação suficiente para inferir sentido. Isso evita que um registro
+    anterior incorreto impeça o sistema de se corrigir.
+    """
     pontos = carregar_pontos()
 
     if ponto_id not in pontos:
@@ -485,6 +650,8 @@ def registrar_passagem(ponto_id: str, telegram_id: int | None = None) -> dict:
     _limpar_estado_se_expirado(agora)
     aguardando = aguardando_proxima_saida("principal", agora)
 
+    # Durante uma janela de espera oficial, novas confirmações são bloqueadas
+    # somente quando não existe confirmação recente que possa indicar atraso.
     if aguardando is not None and not _tem_confirmacao_recente(agora):
         return {
             "aceito": False,
@@ -502,6 +669,10 @@ def registrar_passagem(ponto_id: str, telegram_id: int | None = None) -> dict:
         }
 
     anterior = _estado["ponto_atual"]
+
+    # Primeiro usamos o histórico inteiro, pois o último registro pode estar
+    # errado. Se nada for encontrado, ainda tentamos o ponto imediatamente
+    # anterior guardado no estado.
     resultado_rota = _resultado_com_historico(ponto_id)
 
     if resultado_rota is None and anterior is not None:
@@ -528,6 +699,20 @@ def registrar_passagem(ponto_id: str, telegram_id: int | None = None) -> dict:
 
 
 def montar_localizacao_atual() -> str:
+    """Monta a melhor resposta disponível para 'Onde está o ônibus?'.
+
+    Prioridade quando não existe confirmação em memória:
+    1. pré-saída da Garagem nos próximos 5 minutos;
+    2. viagem oficial possivelmente em andamento;
+    3. janela estimada posterior ao Portão 1;
+    4. provável espera antes da próxima saída;
+    5. saída oficial recente que ainda pode estar atrasada;
+    6. ausência de informação.
+
+    Quando existe confirmação, ela é mostrada primeiro. A rota/histórico tenta
+    informar sentido e próximo ponto; se isso não for possível, o horário
+    recente pode fornecer contexto apenas como estimativa.
+    """
     agora = datetime.now(FUSO_LOCAL)
     _limpar_estado_se_expirado(agora)
 
@@ -536,6 +721,8 @@ def montar_localizacao_atual() -> str:
     aguardando = aguardando_proxima_saida("principal", agora)
     proxima = proximo_horario("principal", agora)
 
+    # Sem confirmação real, a resposta é construída exclusivamente por
+    # estimativas de horário. A ordem abaixo define qual hipótese tem prioridade.
     if _estado["ponto_atual"] is None:
         pre_saida_garagem = _proxima_saida_garagem_em_breve(agora)
         if pre_saida_garagem is not None:
@@ -559,6 +746,7 @@ def montar_localizacao_atual() -> str:
             "Use 📍 Informar passagem para registrar quando o ônibus passar por um ponto."
         )
 
+    # A partir daqui existe ao menos uma confirmação real no estado.
     horario = _estado["horario"]
     horario_texto = horario.strftime("%H:%M:%S") if horario else "--:--"
     tempo_texto = _tempo_desde_confirmacao(horario, agora)
@@ -571,6 +759,9 @@ def montar_localizacao_atual() -> str:
         f"🕐 {tempo_texto} ({horario_texto})",
     ]
 
+    # Se a confirmação aconteceu antes de uma janela de retorno calculada, a
+    # situação atual pode ter avançado. Nesse caso mostramos a estimativa de
+    # horário separadamente, sem apagar a confirmação registrada.
     if retorno is not None and _confirmacao_anterior_ao_retorno(horario, retorno):
         linhas.extend(["", _formatar_retorno(retorno, proxima)])
     else:
@@ -585,9 +776,12 @@ def montar_localizacao_atual() -> str:
                 ]
             )
 
+        # Com duas evidências compatíveis, usamos a rota para informar movimento.
         if resultado is not None:
             linhas.extend(["", _formatar_movimento(resultado)])
         else:
+            # Primeira confirmação: tenta usar uma saída oficial recente apenas
+            # como contexto adicional para estimar sentido/próximo ponto.
             estimativa = _estimar_primeiro_registro_por_horario(ponto_id, horario)
 
             if estimativa is not None:
