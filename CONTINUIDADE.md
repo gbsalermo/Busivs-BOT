@@ -485,15 +485,48 @@ A prioridade deve ser observar uso real antes de ampliar a arquitetura.
 
 ```text
 Hospedagem / teste com alunos                  ⏭️ próximo
-Etapa 6  - Principal + Micro                   ⏳
-Etapa 7  - NFC                                 ⏳
-Etapa 8  - Desvios dos portões                 ⏳
-Etapa 9  - Modo de férias                      ⏳
-Etapa 10 - Autenticação institucional          ⏳ se necessária
-Etapa 11 - Avisos e alertas automáticos        ⏳ pós-protótipo
+Etapa 6  - Avisos, comunicados e ocorrências   ⏳ pós-hospedagem
+Etapa 7  - Principal + Micro                   ⏳
+Etapa 8  - NFC                                 ⏳
+Etapa 9  - Desvios dos portões                 ⏳
+Etapa 10 - Modo de férias                      ⏳
+Etapa 11 - Autenticação institucional          ⏳ se necessária
+Etapa 12 - Avisos e alertas automáticos        ⏳ pós-protótipo
 ```
 
-Sugestão atual: **não começar o Micro antes de colocar o Principal online e observar o comportamento do protótipo com usuários reais.**
+## Melhorias previstas logo após a hospedagem
+
+Criar uma forma simples de informar aos alunos situações relevantes do circular sem confundir essas mensagens com a localização do ônibus.
+
+Tipos previstos:
+
+- **Avisos** — mensagens rápidas sobre mudanças temporárias no funcionamento;
+- **Observações** — informações úteis que complementem horários ou localização;
+- **Informações** — orientações gerais sobre o serviço;
+- **Comunicados** — mensagens institucionais ou operacionais importantes;
+- **Problemas / ocorrências** — situações que podem alterar ou interromper o serviço.
+
+Exemplos de ocorrências:
+
+```text
+🚌 ônibus quebrado
+👥 superlotação
+🌧️ chuva intensa
+🚧 bloqueio ou desvio de rota
+⏱️ atraso relevante
+❌ viagem cancelada
+⚠️ problema mecânico ou operacional
+```
+
+Princípios para essa etapa:
+
+1. deixar claro quando a informação é **comunicado**, **observação** ou **ocorrência**;
+2. não misturar ocorrência com confirmação de localização;
+3. priorizar mensagens curtas e fáceis de entender;
+4. evitar criar infraestrutura complexa antes de saber como os alunos realmente usarão esse recurso;
+5. avaliar depois do teste online se os avisos serão administrados manualmente, colaborativamente ou de forma híbrida.
+
+Sugestão atual: **depois de hospedar, testar primeiro o Principal com usuários reais e então priorizar avisos/comunicados/ocorrências antes de ampliar para Micro e NFC.**
 
 ---
 
