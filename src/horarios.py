@@ -5,6 +5,13 @@ from pathlib import Path
 CAMINHO_HORARIOS = Path(__file__).resolve().parent.parent / "data" / "horarios_letivo.json"
 FUSO_LOCAL = timezone(timedelta(hours=-3))
 
+TITULOS_PERIODOS = {
+    "manha": "🌅 Manhã",
+    "meio_dia": "🍽️ Almoço",
+    "tarde": "🌤️ Tarde",
+    "noite": "🌙 Noite",
+}
+
 
 def carregar_horarios() -> dict:
     with CAMINHO_HORARIOS.open("r", encoding="utf-8") as arquivo:
@@ -83,34 +90,21 @@ def montar_resumo_horarios(veiculo: str = "principal", agora: datetime | None = 
     return mensagem
 
 
-def listar_horarios(veiculo: str = "principal") -> str:
+def listar_horarios_periodo(periodo: str, veiculo: str = "principal") -> str:
     dados = carregar_horarios()
     horarios = dados.get(veiculo, [])
     nome = "Principal" if veiculo == "principal" else "Micro"
 
-    if not horarios:
-        return f"📋 {nome}\n\nOs horários ainda não foram cadastrados no sistema."
+    horarios_periodo = [
+        horario for horario in horarios if horario.get("periodo") == periodo
+    ]
 
-    titulos = {
-        "manha": "🌅 Manhã",
-        "meio_dia": "☀️ Meio-dia",
-        "tarde": "🌤️ Tarde",
-        "noite": "🌙 Noite",
-    }
+    if not horarios_periodo:
+        return f"📋 {nome}\n\nNenhum horário cadastrado para este período."
 
-    linhas = [f"📋 Horários - {nome}", ""]
-    periodo_atual = None
+    linhas = [f"{TITULOS_PERIODOS.get(periodo, periodo.title())} - {nome}", ""]
 
-    for horario in horarios:
-        periodo = horario["periodo"]
-
-        if periodo != periodo_atual:
-            if periodo_atual is not None:
-                linhas.append("")
-            linhas.append(titulos.get(periodo, periodo.title()))
-            periodo_atual = periodo
-
+    for horario in horarios_periodo:
         linhas.append(f"{horario['hora']} - {horario['origem']}")
 
-    linhas.extend(["", "Operação regular: segunda a sexta-feira."])
     return "\n".join(linhas)
