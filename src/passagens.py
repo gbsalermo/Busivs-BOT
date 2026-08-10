@@ -245,6 +245,18 @@ def registrar_passagem(ponto_id: str, telegram_id: int | None = None) -> dict:
 
 def montar_localizacao_atual() -> str:
     if _estado["ponto_atual"] is None:
+        agora = datetime.now(FUSO_LOCAL)
+        horario_garagem = _ultima_saida_recente_da_garagem(agora)
+
+        if horario_garagem is not None:
+            return (
+                "🚌 Ainda não há confirmação de passagem.\n\n"
+                f"🕐 Pelo horário oficial, o ônibus deve ter saído da Garagem às {horario_garagem}.\n"
+                "➡️ Sentido provável: RUA\n"
+                "📍 Próxima confirmação esperada: RU / Residências\n\n"
+                "ℹ️ Essa informação é baseada apenas no horário previsto, não em uma confirmação real."
+            )
+
         return (
             "🚌 Ainda não há confirmação de passagem nesta sessão.\n\n"
             "Use 📍 Informar passagem para registrar quando o ônibus passar por um ponto."
