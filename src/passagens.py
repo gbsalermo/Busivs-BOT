@@ -8,6 +8,7 @@ from rota import carregar_pontos, carregar_rota
 FUSO_LOCAL = timezone(timedelta(hours=-3))
 CAMINHO_HORARIOS = Path(__file__).resolve().parent.parent / "data" / "horarios_letivo.json"
 JANELA_SAIDA_RECENTE_MINUTOS = 45
+JANELA_PRE_SAIDA_GARAGEM_MINUTOS = 5
 JANELA_CONFIRMACAO_RECENTE_MINUTOS = 30
 LIMITE_INTERVALO_BLOCO_MINUTOS = 60
 MAX_HISTORICO_REGISTROS = 20
@@ -229,6 +230,24 @@ def _ultima_saida_oficial_recente(agora: datetime) -> dict | None:
     }
 
 
+def _proxima_saida_garagem_em_breve(agora: datetime) -> dict | None:
+    proxima = proximo_horario("principal", agora)
+    if proxima is None or proxima.get("origem") != "Garagem":
+        return None
+
+    previsto = _horario_previsto_hoje(proxima["hora"], agora)
+    diferenca = previsto - agora
+
+    if not timedelta(0) < diferenca <= timedelta(minutes=JANELA_PRE_SAIDA_GARAGEM_MINUTOS):
+        return None
+
+    return {
+        "hora": proxima["hora"],
+        "origem": proxima["origem"],
+        "previsto": previsto,
+    }
+
+
 def _estimar_primeiro_registro_por_horario(ponto_id: str, agora: datetime) -> dict | None:
     saida = _ultima_saida_oficial_recente(agora)
     if saida is None:
@@ -418,6 +437,15 @@ def _formatar_saida_recente_sem_confirmacao(saida: dict) -> str:
     )
 
 
+def _formatar_pre_saida_garagem(saida: dict) -> str:
+    return (
+        "🅿️ Sem confirmação recente, o ônibus provavelmente está na Garagem.\n\n"
+        "⏰ Próxima saída prevista:\n"
+        f"     🕐 {saida['hora']} — Garagem\n\n"
+        "ℹ️ É uma previsão pelo horário oficial; pode haver atraso na chegada à garagem ou na saída."
+    )
+
+
 def _confirmacao_anterior_ao_retorno(horario: datetime | None, retorno: dict | None) -> bool:
     if horario is None or retorno is None:
         return False
@@ -509,6 +537,10 @@ def montar_localizacao_atual() -> str:
     proxima = proximo_horario("principal", agora)
 
     if _estado["ponto_atual"] is None:
+        pre_saida_garagem = _proxima_saida_garagem_em_breve(agora)
+        if pre_saida_garagem is not None:
+            return _formatar_pre_saida_garagem(pre_saida_garagem)
+
         if atual is not None:
             return _formatar_viagem_sem_confirmacao(atual)
 
