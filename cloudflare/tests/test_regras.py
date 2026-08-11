@@ -1,4 +1,5 @@
 import sys
+import unittest
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 
@@ -16,33 +17,33 @@ from regras import (
 FUSO = timezone(timedelta(hours=-3))
 
 
-def test_estimativa_pico_1300():
-    assert estimar_chegada_portao_1("13:00")["inicio"] == "13:20"
-    assert estimar_chegada_portao_1("13:00")["fim"] == "13:25"
+class TestRegrasCloudflare(unittest.TestCase):
+    def test_estimativa_pico_1300(self):
+        previsao = estimar_chegada_portao_1("13:00")
+        self.assertEqual(previsao["inicio"], "13:20")
+        self.assertEqual(previsao["fim"], "13:25")
+
+    def test_listagem_tarde_contem_1300_e_1600(self):
+        texto = listar_horarios_periodo("tarde")
+        self.assertIn("13:00", texto)
+        self.assertIn("16:00", texto)
+
+    def test_resumo_noturno_aponta_2040(self):
+        agora = datetime(2026, 8, 11, 19, 0, tzinfo=FUSO)
+        self.assertIn("20:40", montar_resumo_horarios(agora))
+
+    def test_rota_contem_biblioteca_duas_vezes(self):
+        self.assertEqual(montar_rota_atual().count("Biblioteca"), 2)
+
+    def test_primeiro_registro_e_duplicata(self):
+        estado = estado_vazio()
+        agora = datetime(2026, 8, 11, 13, 5, tzinfo=FUSO)
+        estado, resultado = registrar_passagem(estado, "fitotecnia", 1, agora)
+        self.assertTrue(resultado["aceito"])
+        estado, resultado = registrar_passagem(estado, "fitotecnia", 2, agora)
+        self.assertFalse(resultado["aceito"])
+        self.assertEqual(resultado["motivo"], "duplicado")
 
 
-def test_listagem_tarde_contem_1300_e_1600():
-    texto = listar_horarios_periodo("tarde")
-    assert "13:00" in texto
-    assert "16:00" in texto
-
-
-def test_resumo_noturno_aponta_2040():
-    agora = datetime(2026, 8, 11, 19, 0, tzinfo=FUSO)
-    texto = montar_resumo_horarios(agora)
-    assert "20:40" in texto
-
-
-def test_rota_contem_biblioteca_duas_vezes():
-    texto = montar_rota_atual()
-    assert texto.count("Biblioteca") == 2
-
-
-def test_primeiro_registro_e_duplicata():
-    estado = estado_vazio()
-    agora = datetime(2026, 8, 11, 13, 5, tzinfo=FUSO)
-    estado, resultado = registrar_passagem(estado, "fitotecnia", 1, agora)
-    assert resultado["aceito"] is True
-    estado, resultado = registrar_passagem(estado, "fitotecnia", 2, agora)
-    assert resultado["aceito"] is False
-    assert resultado["motivo"] == "duplicado"
+if __name__ == "__main__":
+    unittest.main()
