@@ -3,5 +3,19 @@
   "name": "busivs-bot",
   "main": "src/entry.py",
   "compatibility_date": "2026-08-11",
-  "compatibility_flags": ["python_workers"]
+  "compatibility_flags": ["python_workers"],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "BUS_STATE",
+        "class_name": "BusState"
+      }
+    ]
+  },
+  "exports": {
+    "BusState": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  }
 }
