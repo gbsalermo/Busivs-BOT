@@ -11,36 +11,46 @@ Antes de mexer no projeto:
 1. **Não tratar estimativa como confirmação.**
 2. **Não inferir sentido apenas pelo nome do ponto.**
 3. **Manter horários, pontos e rotas nos JSONs sempre que possível.**
-4. **Evitar infraestrutura sem necessidade concreta.**
+4. **Considerar atraso real antes de bloquear uma passagem.**
 5. **Testar Biblioteca nos dois sentidos ao alterar a lógica de rota.**
-6. **Considerar atraso real antes de bloquear uma passagem.**
-7. **Preferir soluções pequenas e compreensíveis por outros alunos.**
-8. **Não adicionar serviços, banco ou dependências sem um problema atual que justifique.**
-9. **Preservar sempre a diferença entre dado confirmado e dado estimado.**
-10. **Dados de localização são temporários: o objetivo é representar o ônibus agora, não criar histórico permanente por padrão.**
-11. **Viagens consecutivas do mesmo bloco operacional podem compartilhar contexto; uma nova saída não significa automaticamente apagar o estado.**
+6. **Preservar a diferença entre dado confirmado e dado estimado.**
+7. **Localização é temporária; não criar histórico permanente sem necessidade real.**
+8. **Viagens do mesmo bloco operacional podem compartilhar contexto.**
+9. **Preferir soluções pequenas e compreensíveis por outros alunos.**
+10. **Não adicionar infraestrutura sem um problema concreto.**
+11. **A adaptação Cloudflare não pode quebrar a versão atual em polling.**
 
-## Princípio principal
+> **Princípio principal: o BUSIVS BOT deve ser simples, eficaz e de custo zero ou próximo de zero.**
 
-> **O BUSIVS BOT deve ser simples, eficaz e de custo zero ou próximo de zero.**
+---
 
-Antes de adicionar qualquer camada:
+# Estado atual estável
 
-> **Isso resolve um problema que o BUSIVS BOT tem agora?**
-
-Stack atual:
+A versão funcional permanece na `main`:
 
 ```text
 Telegram
-   ↓
+   ↓ long polling
 Python + python-telegram-bot
    ↓
-JSON para dados permanentes
-   ↓
-Memória para estado temporário do ônibus
+JSON = horários / pontos / rota
+Memória = contexto temporário do ônibus
 ```
 
-Dependências atuais:
+Arquivos principais:
+
+```text
+src/bot.py       → interface Telegram / polling
+src/horarios.py  → horários e estimativas
+src/passagens.py → colaboração, estado e localização atual
+src/rota.py      → sentido e próximo ponto
+
+data/horarios_letivo.json
+data/pontos.json
+data/rotas.json
+```
+
+Dependências atuais da versão principal:
 
 ```text
 python-telegram-bot
@@ -49,287 +59,38 @@ python-dotenv
 
 ---
 
-# Decisão arquitetural atual: sem SQL
+# Decisão de persistência
 
-**Decisão tomada antes da hospedagem:** não adicionar banco de dados neste momento.
-
-Motivo: o BUSIVS trabalha principalmente com informação atual e de vida curta.
-
-Dados que precisam permanecer:
+Na versão em polling, continuamos **sem SQL**.
 
 ```text
-horários → JSON
-pontos   → JSON
-rotas    → JSON
+JSON    → informação permanente
+Memória → informação atual do bloco operacional
 ```
 
-Dados que devem ser temporários:
+O histórico temporário vale enquanto pertence ao mesmo bloco operacional.
 
-```text
-última confirmação
-horário da confirmação
-ponto anterior
-sentido inferido
-próximo ponto
-contexto do bloco operacional atual
-```
-
-O sistema não precisa saber onde o ônibus estava muitas horas atrás para responder onde ele está agora.
-
-SQL/SQLite só deve entrar quando existir necessidade real de histórico, por exemplo:
-
-- calcular tempos médios reais entre pontos;
-- estudar atrasos por faixa de horário;
-- guardar histórico de viagens;
-- produzir estatísticas;
-- calibrar automaticamente estimativas;
-- manter controles de abuso de longo prazo.
-
-Até lá, **estado em memória é uma escolha intencional, não uma limitação a ser corrigida automaticamente**.
-
----
-
-# Ciclo de vida do estado: blocos operacionais
-
-O bot não deve ser reiniciado várias vezes ao dia apenas para apagar localização antiga.
-
-O processo pode ficar rodando 24h. Quem expira é o **contexto do ônibus** quando ele deixa de pertencer ao bloco operacional atual.
-
-## Conceito
-
-Cada saída é uma volta, mas várias voltas próximas podem fazer parte do mesmo bloco de circulação.
-
-Exemplo da manhã:
-
-```text
-06:25 Garagem
-↓
-06:50 RU
-↓
-07:10 RU
-↓
-07:25 RU
-↓
-07:40 RU
-↓
-07:55 RU
-```
-
-Essas saídas são consecutivas e podem compartilhar o mesmo contexto em memória.
-
-Depois existe uma lacuna relevante até a retomada seguinte. Nesse ponto o contexto anterior deixa de ser útil e pode ser descartado.
-
-## Regra atual
-
-Implementada em `src/passagens.py`:
+Regra atual:
 
 ```text
 intervalo entre saídas <= 60 min
-→ mesmo bloco operacional
+→ mesmo bloco
 → mantém contexto
 
 intervalo entre saídas > 60 min
 → quebra de bloco
+→ contexto antigo pode expirar
 ```
 
-O limite atual é:
+Também limpa estado de dia anterior.
 
-```text
-LIMITE_INTERVALO_BLOCO_MINUTOS = 60
-```
+Banco tradicional só deve ser reconsiderado para histórico de longo prazo, métricas, estatísticas, calibração ou controle de abuso persistente.
 
-A quebra não apaga uma confirmação enquanto a viagem anterior ainda pode estar em andamento. A limpeza ocorre quando o sistema já entrou na lacuna operacional ou quando o próximo bloco começou.
-
-Também continua valendo:
-
-```text
-confirmação de dia anterior
-→ limpa
-```
-
-## Comportamento esperado
-
-```text
-MESMO BLOCO
-06:25 → 06:50 → 07:10 → 07:25 → 07:40 → 07:55
-→ contexto pode continuar em memória
-
-LACUNA GRANDE
-fim da circulação do bloco anterior → próxima retomada
-→ estado antigo expira
-
-NOVO BLOCO
-primeira saída após a lacuna
-→ não carrega localização do bloco anterior
-```
-
-Isso é diferente de um TTL rígido. O estado não é apagado só porque passaram 30 minutos ou porque começou uma nova saída.
-
-A janela de **30 minutos** continua existindo apenas como proteção para considerar uma confirmação recente em situações de possível atraso e no bloqueio de registros fora de circulação.
-
-Resumo da decisão:
-
-> **O histórico em memória vale enquanto ele pertence ao mesmo bloco operacional. O fim do bloco é a fronteira natural de expiração.**
+**Exceção de infraestrutura:** na versão Cloudflare, Durable Object/SQLite pode ser usado apenas para substituir a memória efêmera do processo, porque Workers não garantem que duas requisições sejam executadas na mesma instância. Isso não muda a decisão de não criar histórico permanente de localização.
 
 ---
 
-# Onde mexer?
-
-## Horários
-
-```text
-data/horarios_letivo.json
-```
-
-Regras e estados derivados dos horários:
-
-```text
-src/horarios.py
-```
-
-## Pontos
-
-```text
-data/pontos.json
-```
-
-## Sequência da rota
-
-```text
-data/rotas.json
-```
-
-## Estado temporário, colaboração e "Onde está o ônibus?"
-
-```text
-src/passagens.py
-```
-
-Aqui ficam:
-
-- última confirmação;
-- tempo desde a confirmação;
-- integração entre horário e rota;
-- ciclo de vida por blocos operacionais;
-- proteção contra passagem fora de circulação;
-- localização apresentada ao usuário.
-
-## Sentido e próximo ponto
-
-```text
-src/rota.py
-```
-
-## Telegram: menus, comandos e callbacks
-
-```text
-src/bot.py
-```
-
-## Testar rota
-
-```bash
-python -m unittest tests/test_rota.py
-```
-
-Simulador:
-
-```bash
-python tests/simular_rota.py
-```
-
----
-
-# Visão atual do produto
-
-O BUSIVS BOT é um bot de Telegram para estudantes da UFRB - Campus Cruz das Almas.
-
-Hoje ele responde principalmente:
-
-1. Qual é o próximo horário do circular?
-2. Existe uma viagem provavelmente em andamento?
-3. Onde ocorreu a última confirmação útil?
-4. Qual o sentido e o próximo ponto?
-5. O ônibus provavelmente está no retorno?
-6. O percurso provavelmente terminou?
-7. Qual é a próxima saída?
-8. Existe indício de atraso?
-
-Sempre distinguir:
-
-- **confirmação real**;
-- **estimativa por horário**;
-- **inferência de possível atraso**.
-
-Nunca apresentar estimativa como certeza.
-
----
-
-# Autenticação
-
-Autenticação institucional continua adiada.
-
-No protótipo:
-
-- consulta é pública;
-- informar passagem é público;
-- `telegram_id` pode ser mantido internamente;
-- abuso é tratado primeiro com regras simples de contexto e horário.
-
-Autenticação só deve ser estudada se surgir um problema real que as regras atuais não consigam resolver.
-
----
-
-# Ônibus
-
-## Principal
-
-Implementado e funcional.
-
-## Micro
-
-Ainda não implementado.
-
----
-
-# Etapas concluídas
-
-```text
-Etapa 1  - Base do bot                              ✅
-Etapa 2  - Horários fixos do Principal             ✅
-Etapa 3  - Pontos / rota / sentido / próximo ponto ✅
-Etapa 4  - Informar passagem                       ✅ protótipo
-Etapa 5  - Localização / tempo / estados / proteção ✅ protótipo validado
-Etapa 5.5- Ciclo de vida por blocos operacionais   ✅ pré-hospedagem
-```
-
----
-
-# Estados da viagem baseados em horário
-
-O Principal trabalha atualmente com:
-
-```text
-1. viagem possivelmente em andamento
-2. percurso de retorno
-3. provavelmente aguardando na origem
-4. próxima saída prevista
-```
-
-Exemplo da saída de 10:00:
-
-```text
-10:00–10:20 → viagem possivelmente em andamento
-10:25–10:40 → percurso de retorno
-10:40–11:30 → provavelmente na Garagem
-11:30       → próxima saída
-```
-
-São aproximações, não GPS.
-
----
-
-# Rota validada
+# Rota principal validada
 
 ```text
 RU / Residências
@@ -363,187 +124,289 @@ RU / Residências
 
 Biblioteca aparece duas vezes. Nunca inferir sentido apenas pelo nome do ponto.
 
-Exemplos:
-
-```text
-Pavilhão I → Biblioteca = RUA
-Portão 1 → Biblioteca   = RU
-Canãa → Portão 1        = RU
-```
-
 ---
 
-# Proteção contra registros fora de circulação
+# Funcionalidades atuais do protótipo
 
-Implementada e testada.
+O Principal já possui:
 
-Regra atual:
-
-```text
-ônibus aguardando próxima saída
-+
-sem confirmação válida nos últimos 30 minutos
-=
-bloquear nova passagem
-```
-
-A margem de 30 minutos preserva a possibilidade de atraso real.
-
-Essa regra de proteção é independente do tempo de vida do bloco operacional.
-
----
-
-# Possível atraso - regra experimental
-
-Ainda restrita ao primeiro cenário estudado:
-
-```text
-janela: 10:15 até 10:20
-último ponto: Biblioteca ou Pavilhão II
-sentido: RUA
-previsão Portão 1: por volta de 10:20
-```
-
-Não generalizar antes de observar uso real.
-
----
-
-# Testes já realizados
-
-## Automáticos
-
-A rota cobre:
-
-- Biblioteca na ida;
-- Biblioteca no retorno;
-- Canãa → Portão 1;
-- pontos opcionais usados ou pulados;
-- transições inválidas;
-- ponto inexistente.
-
-## Manuais
-
-Já foram testados com sucesso:
-
-- informar passagem;
-- tempo decorrido;
-- sentido;
-- próximo ponto;
-- viagem baseada em horário;
-- percurso de retorno;
-- provável espera na Garagem;
+- horários fixos por período;
+- previsão de chegada ao Portão 1;
+- identificação de horários de pico;
 - próxima saída;
-- bloqueio fora de circulação.
+- viagem possivelmente em andamento;
+- percurso de retorno;
+- provável espera na origem da próxima saída;
+- pré-saída da Garagem;
+- informar passagem por botões;
+- histórico colaborativo curto em memória;
+- correção natural de confirmação isolada incompatível;
+- sentido e próximo ponto;
+- proteção contra passagem fora de circulação;
+- ciclo de vida por blocos operacionais;
+- regra experimental de possível atraso.
 
-## Últimos testes antes de hospedar
+Autenticação institucional continua adiada.
 
-Validar agora especificamente os blocos operacionais:
-
-1. registrar passagem durante o bloco `06:25 → 07:55` e confirmar que uma nova saída do mesmo bloco não apaga o contexto;
-2. confirmar que a localização ainda pode evoluir entre viagens consecutivas do mesmo bloco;
-3. entrar numa lacuna maior que 60 minutos depois da viagem anterior terminar e verificar que o estado antigo é descartado;
-4. iniciar o próximo bloco sem ter consultado o bot durante a lacuna e confirmar que o estado anterior também é descartado;
-5. validar virada de dia;
-6. repetir o bloqueio de passagem fora de circulação;
-7. rodar novamente `python -m unittest tests/test_rota.py`.
-
----
-
-# Pré-hospedagem
-
-Checklist:
-
-```text
-[ ] validar blocos operacionais em teste local
-[ ] rodar testes de rota novamente
-[ ] revisar mensagens principais do Telegram
-[ ] confirmar .env fora do Git
-[ ] confirmar requirements.txt mínimo
-[ ] decidir plataforma de hospedagem
-[ ] configurar TELEGRAM_BOT_TOKEN na plataforma
-[ ] manter processo Python ativo 24h
-[ ] validar timezone UTC-3 no ambiente hospedado
-[ ] fazer teste real com poucos alunos
-```
-
-A hospedagem não precisa de:
-
-- PostgreSQL;
-- Redis;
-- frontend;
-- reinicializações programadas várias vezes ao dia;
-- persistência de localização por SQL;
-- Docker, salvo se a plataforma escolhida realmente exigir ou simplificar.
-
-O bot deve ficar online 24h e deixar o próprio ciclo operacional controlar a validade do estado.
+Micro ainda não implementado.
 
 ---
 
-# Próximas etapas depois de colocar online
-
-A prioridade deve ser observar uso real antes de ampliar a arquitetura.
+# Etapas concluídas
 
 ```text
-Hospedagem / teste com alunos                  ⏭️ próximo
-Etapa 6  - Avisos, comunicados e ocorrências   ⏳ pós-hospedagem
-Etapa 7  - Principal + Micro                   ⏳
-Etapa 8  - NFC                                 ⏳
-Etapa 9  - Desvios dos portões                 ⏳
-Etapa 10 - Modo de férias                      ⏳
-Etapa 11 - Autenticação institucional          ⏳ se necessária
-Etapa 12 - Avisos e alertas automáticos        ⏳ pós-protótipo
+Etapa 1   Base do bot                               ✅
+Etapa 2   Horários fixos do Principal              ✅
+Etapa 3   Pontos / rota / sentido / próximo ponto  ✅
+Etapa 4   Informar passagem                        ✅ protótipo
+Etapa 5   Localização / tempo / estados / proteção ✅ protótipo
+Etapa 5.5 Blocos operacionais                      ✅ validado
 ```
-
-## Melhorias previstas logo após a hospedagem
-
-Criar uma forma simples de informar aos alunos situações relevantes do circular sem confundir essas mensagens com a localização do ônibus.
-
-Tipos previstos:
-
-- **Avisos** — mensagens rápidas sobre mudanças temporárias no funcionamento;
-- **Observações** — informações úteis que complementem horários ou localização;
-- **Informações** — orientações gerais sobre o serviço;
-- **Comunicados** — mensagens institucionais ou operacionais importantes;
-- **Problemas / ocorrências** — situações que podem alterar ou interromper o serviço.
-
-Exemplos de ocorrências:
-
-```text
-🚌 ônibus quebrado
-👥 superlotação
-🌧️ chuva intensa
-🚧 bloqueio ou desvio de rota
-⏱️ atraso relevante
-❌ viagem cancelada
-⚠️ problema mecânico ou operacional
-```
-
-Princípios para essa etapa:
-
-1. deixar claro quando a informação é **comunicado**, **observação** ou **ocorrência**;
-2. não misturar ocorrência com confirmação de localização;
-3. priorizar mensagens curtas e fáceis de entender;
-4. evitar criar infraestrutura complexa antes de saber como os alunos realmente usarão esse recurso;
-5. avaliar depois do teste online se os avisos serão administrados manualmente, colaborativamente ou de forma híbrida.
-
-Sugestão atual: **depois de hospedar, testar primeiro o Principal com usuários reais e então priorizar avisos/comunicados/ocorrências antes de ampliar para Micro e NFC.**
 
 ---
 
-# Quando reconsiderar persistência
+# Etapa 6 - Cloudflare / versão hospedada
 
-Reavaliar SQLite somente quando uma destas necessidades surgir:
+## Objetivo
+
+Testar uma versão de produção com **custo R$ 0**, usando Cloudflare Workers e webhook do Telegram.
+
+A branch exclusiva é:
 
 ```text
-histórico de passagens de longo prazo
-métricas de uso
-tempos médios entre pontos
-estimativas baseadas em dados reais
-estatísticas de atraso
-estado sobrevivendo a reinícios por necessidade funcional
-controle de abuso de longo prazo
+feat/cloudflare-worker
 ```
 
-Até lá:
+A `main` deve continuar funcionando com `application.run_polling()` até toda a adaptação ser validada.
 
-> **JSON guarda o que é permanente. Memória guarda o contexto do bloco operacional atual.**
+Arquitetura pretendida:
+
+```text
+Telegram
+   ↓ webhook HTTPS
+Cloudflare Python Worker
+   ↓
+regras do BUSIVS
+   ↕
+Durable Object SQLite
+   ↓
+Telegram Bot API
+```
+
+Cloudflare Workers Python está em beta. Por isso a migração será incremental e terá critério claro de abandono.
+
+## 6.1 - Worker HTTP mínimo ✅ em andamento
+
+Objetivo: validar o runtime antes de portar o bot.
+
+Criado:
+
+```text
+cloudflare/
+├── README.md
+├── pyproject.toml
+├── wrangler.jsonc
+└── src/
+    └── entry.py
+```
+
+Endpoints iniciais:
+
+```text
+GET  /health
+POST /telegram/webhook
+```
+
+Nesta fase `/telegram/webhook` retorna `501` de propósito.
+
+**Não configurar `setWebhook` ainda.** O Telegram não permite `getUpdates` enquanto um webhook estiver ativo; ativá-lo agora interromperia o bot local em polling.
+
+Critério para concluir 6.1:
+
+```text
+[ ] instalar ambiente pywrangler
+[ ] rodar Worker localmente
+[ ] GET /health retornar 200
+[ ] fazer primeiro deploy Cloudflare
+[ ] GET /health funcionar na URL pública
+```
+
+## 6.2 - Webhook Telegram básico
+
+Objetivo: receber Update sem ainda portar todo o bot.
+
+```text
+[ ] TELEGRAM_BOT_TOKEN como secret
+[ ] TELEGRAM_WEBHOOK_SECRET como secret
+[ ] validar X-Telegram-Bot-Api-Secret-Token
+[ ] interpretar update_id / message / callback_query
+[ ] responder mensagem simples via Bot API
+[ ] configurar setWebhook somente no momento do teste
+[ ] documentar como remover webhook e voltar ao polling
+```
+
+## 6.3 - Adaptador de interface Telegram
+
+Objetivo: separar regras do BUSIVS das APIs específicas de `python-telegram-bot`.
+
+```text
+[ ] menu principal
+[ ] próximos horários
+[ ] listar horários
+[ ] onde está o ônibus
+[ ] informar passagem
+[ ] callbacks dos pontos
+```
+
+As regras de horário/rota devem ser reaproveitadas sempre que o runtime permitir; evitar duplicação de regra de negócio.
+
+## 6.4 - Estado colaborativo no Durable Object
+
+Objetivo: substituir somente a memória temporária que não é confiável em ambiente serverless.
+
+Persistir apenas o contexto operacional curto:
+
+```text
+ponto atual
+ponto anterior
+horário
+resultado da rota
+histórico curto do bloco
+identificador necessário para deduplicação
+```
+
+Não transformar essa etapa em banco histórico.
+
+Usar **SQLite-backed Durable Object**, que é a modalidade disponível no Workers Free para novos projetos.
+
+## 6.5 - Ciclo de vida e blocos operacionais
+
+Portar e testar:
+
+```text
+mesmo bloco mantém contexto
+quebra > 60 min expira contexto
+dia anterior expira
+atraso não é bloqueado de forma rígida
+registros incompatíveis podem ser corrigidos por sequência posterior
+```
+
+## 6.6 - Testes de equivalência
+
+Comparar Worker vs versão polling:
+
+```text
+[ ] horários
+[ ] períodos
+[ ] pico
+[ ] retorno
+[ ] Garagem
+[ ] rota ida
+[ ] rota retorno
+[ ] Biblioteca nos dois sentidos
+[ ] pontos opcionais
+[ ] colaboração
+[ ] registro incorreto seguido de registro correto
+[ ] bloco operacional
+```
+
+A versão Cloudflare não avança para campo se alterar a regra funcional do protótipo sem intenção.
+
+## 6.7 - Deploy e teste de campo
+
+```text
+[ ] deploy definitivo
+[ ] secrets configurados
+[ ] webhook ativo
+[ ] confirmar logs
+[ ] confirmar consumo dentro do Free Plan
+[ ] teste com poucos alunos
+[ ] acompanhar erros e latência
+[ ] manter procedimento de rollback para polling
+```
+
+---
+
+# Critérios de abandono da Cloudflare
+
+Não insistir na adaptação se ocorrer uma destas situações:
+
+- dependências essenciais incompatíveis com Python Workers;
+- CPU do Free Plan insuficiente para o fluxo normal;
+- Durable Objects tornarem o projeto desnecessariamente complexo;
+- comportamento do webhook ficar menos confiável do que polling;
+- necessidade de reescrever grande parte das regras já validadas;
+- custo deixar de ser próximo de zero.
+
+Nesse caso:
+
+```text
+feat/cloudflare-worker → permanece como experimento
+main                   → continua funcional
+hospedagem alternativa → VM/worker Python tradicional
+```
+
+---
+
+# Testes locais atuais
+
+Executar antes de mudanças relevantes:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+Os testes atuais cobrem rota, blocos operacionais e resiliência das confirmações colaborativas.
+
+Na branch Cloudflare, testes específicos devem ficar isolados dos testes do polling sempre que possível.
+
+---
+
+# Pré-hospedagem Cloudflare
+
+```text
+[x] regras principais do protótipo testadas localmente
+[x] branch de hospedagem isolada
+[x] plano gratuito confirmado antes da adaptação
+[x] estrutura inicial do Worker criada
+[ ] Worker executando localmente
+[ ] Worker implantado
+[ ] webhook validado
+[ ] estado temporário portado
+[ ] testes de equivalência concluídos
+[ ] teste de campo
+```
+
+---
+
+# Próximas etapas de produto depois da hospedagem
+
+A numeração anterior foi deslocada porque a adaptação Cloudflare passou a ser a Etapa 6.
+
+```text
+Etapa 7  - Avisos, comunicados e ocorrências ⏳
+Etapa 8  - Principal + Micro                 ⏳
+Etapa 9  - NFC                               ⏳
+Etapa 10 - Desvios dos portões               ⏳
+Etapa 11 - Modo de férias                     ⏳
+Etapa 12 - Autenticação institucional         ⏳ se necessária
+Etapa 13 - Avisos e alertas automáticos       ⏳ pós-protótipo
+```
+
+Prioridade após hospedar: testar primeiro o Principal com usuários reais antes de ampliar escopo.
+
+---
+
+# Decisão resumida
+
+```text
+MAIN
+polling + memória
+= versão estável / fallback
+
+FEAT/CLOUDFLARE-WORKER
+webhook + Worker + Durable Object
+= versão experimental de hospedagem gratuita
+```
+
+> **O objetivo da Etapa 6 não é melhorar a arquitetura por vaidade. É conseguir colocar o BUSIVS online por R$ 0 sem perder o comportamento que já foi validado.**
