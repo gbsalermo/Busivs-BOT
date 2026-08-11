@@ -1,0 +1,10 @@
+[project]
+name = "busivs-cloudflare-worker"
+version = "0.1.0"
+description = "Adapter do BUSIVS BOT para Cloudflare Workers"
+requires-python = ">=3.11"
+
+[dependency-groups]
+dev = [
+    "workers-py",
+]
