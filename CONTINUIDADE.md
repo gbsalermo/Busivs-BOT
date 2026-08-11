@@ -195,9 +195,7 @@ Telegram Bot API
 
 Cloudflare Workers Python está em beta. Por isso a migração será incremental e terá critério claro de abandono.
 
-## 6.1 - Worker HTTP mínimo ✅ em andamento
-
-Objetivo: validar o runtime antes de portar o bot.
+## 6.1 - Worker HTTP mínimo ✅ código pronto / validação de runtime pendente
 
 Criado:
 
@@ -207,45 +205,62 @@ cloudflare/
 ├── pyproject.toml
 ├── wrangler.jsonc
 └── src/
-    └── entry.py
+    ├── entry.py
+    └── telegram_api.py
 ```
 
-Endpoints iniciais:
+Endpoint de saúde:
 
 ```text
-GET  /health
-POST /telegram/webhook
+GET /health
 ```
 
-Nesta fase `/telegram/webhook` retorna `501` de propósito.
-
-**Não configurar `setWebhook` ainda.** O Telegram não permite `getUpdates` enquanto um webhook estiver ativo; ativá-lo agora interromperia o bot local em polling.
-
-Critério para concluir 6.1:
+Critério restante para fechar 6.1 no ambiente Cloudflare:
 
 ```text
-[ ] instalar ambiente pywrangler
+[ ] instalar/sincronizar pywrangler localmente
 [ ] rodar Worker localmente
 [ ] GET /health retornar 200
 [ ] fazer primeiro deploy Cloudflare
 [ ] GET /health funcionar na URL pública
 ```
 
-## 6.2 - Webhook Telegram básico
+## 6.2 - Webhook Telegram básico ✅ implementação pronta / ativação pendente
 
 Objetivo: receber Update sem ainda portar todo o bot.
 
+Implementado:
+
 ```text
-[ ] TELEGRAM_BOT_TOKEN como secret
-[ ] TELEGRAM_WEBHOOK_SECRET como secret
-[ ] validar X-Telegram-Bot-Api-Secret-Token
-[ ] interpretar update_id / message / callback_query
-[ ] responder mensagem simples via Bot API
-[ ] configurar setWebhook somente no momento do teste
-[ ] documentar como remover webhook e voltar ao polling
+[x] endpoint POST /telegram/webhook
+[x] TELEGRAM_BOT_TOKEN lido apenas como secret do ambiente
+[x] TELEGRAM_WEBHOOK_SECRET lido apenas como secret do ambiente
+[x] validação de X-Telegram-Bot-Api-Secret-Token
+[x] parsing de Update JSON
+[x] leitura de message / edited_message
+[x] extração de chat.id e text
+[x] envio de resposta simples via Bot API
+[x] Updates ainda não suportados retornam 200 sem quebrar o webhook
+[x] documentado rollback para polling
 ```
 
-## 6.3 - Adaptador de interface Telegram
+Ainda depende de execução/deploy real:
+
+```text
+[ ] configurar secrets na Cloudflare
+[ ] validar POST local manual
+[ ] publicar Worker
+[ ] validar /health público
+[ ] configurar setWebhook somente no teste
+[ ] enviar /start pelo Telegram e receber resposta do Worker
+[ ] remover webhook e confirmar retorno ao polling se necessário
+```
+
+Regra de segurança:
+
+> **Nunca ativar o webhook antes da URL pública estar validada.** Enquanto `setWebhook` estiver ativo, o polling atual deixa de receber Updates.
+
+## 6.3 - Adaptador de interface Telegram ⏭️ próxima subetapa de código
 
 Objetivo: separar regras do BUSIVS das APIs específicas de `python-telegram-bot`.
 
@@ -369,9 +384,13 @@ Na branch Cloudflare, testes específicos devem ficar isolados dos testes do pol
 [x] branch de hospedagem isolada
 [x] plano gratuito confirmado antes da adaptação
 [x] estrutura inicial do Worker criada
+[x] receptor de webhook implementado
+[x] validação por secret implementada
+[x] cliente mínimo da Telegram Bot API implementado
 [ ] Worker executando localmente
 [ ] Worker implantado
-[ ] webhook validado
+[ ] webhook real validado
+[ ] interface completa portada
 [ ] estado temporário portado
 [ ] testes de equivalência concluídos
 [ ] teste de campo
