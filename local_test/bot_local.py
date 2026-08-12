@@ -9,18 +9,16 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 BASE_DIR = Path(__file__).resolve().parent.parent
 CLOUDFLARE_SRC = BASE_DIR / "cloudflare" / "src"
 sys.path.insert(0, str(CLOUDFLARE_SRC))
-
 from dados import PONTOS, ROTULOS_PONTOS
 from regras import agora_local, estado_vazio, listar_horarios_periodo, montar_localizacao, montar_resumo_horarios, montar_rota_atual, registrar_passagem
 from validacao_rota import validar_deslocamento
 from estado_local import EstadoLocal
 from micro import resumo_micro
-
 load_dotenv(BASE_DIR / ".env")
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-ADMIN_TELEGRAM_ID = (os.getenv("ADMIN_TELEGRAM_ID") or "").strip()
+TELEGRAM_BOT_TOKEN=os.getenv("TELEGRAM_BOT_TOKEN")
+ADMIN_TELEGRAM_ID=(os.getenv("ADMIN_TELEGRAM_ID") or "").strip()
 if not TELEGRAM_BOT_TOKEN: raise RuntimeError("TELEGRAM_BOT_TOKEN nao configurado no .env")
-ESTADO = EstadoLocal()
+ESTADO=EstadoLocal()
 AVISOS_PREDEFINIDOS=["🚪 Portão 1 fechado","🚪 Portão 2 fechado","⚠️ Circular operando com atraso","🛠️ Circular temporariamente fora de operação","🛠️ Circular quebrou em meio ao trajeto","🌧️ Tempo chuvoso, circular pode demorar mais do que o esperado","🧍‍♂️🧍‍♀️ Superlotação do circular","🚌 Rota alterada temporariamente","📅 Horários especiais hoje"]
 MANUAL="""📖 Dicas para uso do BUSIVS
 
@@ -29,14 +27,17 @@ MANUAL="""📖 Dicas para uso do BUSIVS
 ⏰ Próximos horários — mostra a volta atual e próximas referências; com reforço ativo, inclui o micro.
 📋 Listar horários — consulta os horários oficiais do circular principal por período.
 🚐 Confirmar que micro está rodando — use somente quando realmente observar o micro de reforço operando. Qualquer usuário pode confirmar.
-📢 Avisos — exibe informações operacionais importantes quando existirem.
 ❓ Ajuda — permite consultar novamente este manual e a rota atual.
 
+📢 Avisos operacionais ativos aparecem automaticamente no bot quando necessário.
 ❗ Localizações são colaborativas e horários são referências oficiais; atrasos podem acontecer.
 🤝 Informe pontos apenas quando tiver visto o veículo. Isso melhora a informação para todos."""
 
 def admin_ok(uid): return bool(ADMIN_TELEGRAM_ID and str(uid)==ADMIN_TELEGRAM_ID)
-def teclado_menu(): return InlineKeyboardMarkup([[InlineKeyboardButton("🚌 Onde está o ônibus?",callback_data="onde")],[InlineKeyboardButton("📍 Informar ponto atual",callback_data="local")],[InlineKeyboardButton("⏰ Próximos horários",callback_data="horarios")],[InlineKeyboardButton("📋 Listar horários",callback_data="listar_horarios")],[InlineKeyboardButton("🚐 Confirmar que micro está rodando",callback_data="micro_confirmar")],[InlineKeyboardButton("📢 Avisos",callback_data="avisos")],[InlineKeyboardButton("❓ Ajuda",callback_data="ajuda")]])
+def teclado_menu(uid=None):
+ l=[[InlineKeyboardButton("🚌 Onde está o ônibus?",callback_data="onde")],[InlineKeyboardButton("📍 Informar ponto atual",callback_data="local")],[InlineKeyboardButton("⏰ Próximos horários",callback_data="horarios")],[InlineKeyboardButton("📋 Listar horários",callback_data="listar_horarios")],[InlineKeyboardButton("🚐 Confirmar que micro está rodando",callback_data="micro_confirmar")]]
+ if admin_ok(uid): l.append([InlineKeyboardButton("📢 Avisos",callback_data="avisos")])
+ l.append([InlineKeyboardButton("❓ Ajuda",callback_data="ajuda")]); return InlineKeyboardMarkup(l)
 def teclado_voltar(): return InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Voltar ao menu",callback_data="menu")]])
 def teclado_ajuda(): return InlineKeyboardMarkup([[InlineKeyboardButton("🗺️ Rota atual",callback_data="rota")],[InlineKeyboardButton("📖 Dicas para uso do BOT",callback_data="manual")],[InlineKeyboardButton("⬅️ Voltar ao menu",callback_data="menu")]])
 def teclado_periodos(): return InlineKeyboardMarkup([[InlineKeyboardButton("🌅 Manhã",callback_data="periodo_manha"),InlineKeyboardButton("🍽️ Almoço",callback_data="periodo_meio_dia")],[InlineKeyboardButton("🌤️ Tarde",callback_data="periodo_tarde"),InlineKeyboardButton("🌙 Noite",callback_data="periodo_noite")],[InlineKeyboardButton("⬅️ Voltar ao menu",callback_data="menu")]])
@@ -50,11 +51,11 @@ def teclado_admin_avisos():
 def teclado_remover_avisos(a):
  l=[[InlineKeyboardButton("❌ "+t[:45],callback_data=f"aviso_rem_{i}")] for i,t in enumerate(a)]; l.append([InlineKeyboardButton("⬅️ Voltar aos avisos",callback_data="avisos")]); return InlineKeyboardMarkup(l)
 def texto_avisos(a,c=False): return (f"📢 Avisos{' ('+str(len(a))+'/3)' if c else ''}\n\nNenhum aviso operacional ativo no momento." if not a else "\n".join([f"📢 Avisos ativos{' ('+str(len(a))+'/3)' if c else ''}",""]+[f"• {x}" for x in a]))
-async def enviar_menu(m):
- await m.reply_text("🚌 BUSIVS BOT — ALPHA LOCAL\n\nEscolha uma opção:",reply_markup=teclado_menu()); a=ESTADO.listar_avisos()
+async def enviar_menu(m,uid=None):
+ await m.reply_text("🚌 BUSIVS BOT — ALPHA LOCAL\n\nEscolha uma opção:",reply_markup=teclado_menu(uid)); a=ESTADO.listar_avisos()
  if a: await m.reply_text(texto_avisos(a))
 async def start(u:Update,c:ContextTypes.DEFAULT_TYPE):
- if u.effective_message: await u.effective_message.reply_text("👋 Bem-vindo ao BUSIVS!\n\n"+MANUAL); await enviar_menu(u.effective_message)
+ if u.effective_message: await u.effective_message.reply_text("👋 Bem-vindo ao BUSIVS!\n\n"+MANUAL); await enviar_menu(u.effective_message,u.effective_user.id if u.effective_user else None)
 async def texto_admin(u:Update,c:ContextTypes.DEFAULT_TYPE):
  if not u.effective_message or not u.effective_user or not admin_ok(u.effective_user.id) or not ESTADO.aguardando_aviso_personalizado(): return
  t=(u.effective_message.text or "").strip()
@@ -62,7 +63,7 @@ async def texto_admin(u:Update,c:ContextTypes.DEFAULT_TYPE):
  r=ESTADO.salvar_aviso_personalizado(t); await u.effective_message.reply_text(("✅ Aviso publicado." if r.get("ok") else "⚠️ Não consegui publicar.")+"\n\n"+texto_avisos(r.get("avisos",[]),True),reply_markup=teclado_admin_avisos())
 async def callback(u:Update,c:ContextTypes.DEFAULT_TYPE):
  q=u.callback_query; await q.answer(); a=q.data or ""; uid=u.effective_user.id if u.effective_user else None; m=q.message
- if a=="menu": await enviar_menu(m); return
+ if a=="menu": await enviar_menu(m,uid); return
  if a=="ajuda": await m.reply_text("❓ Ajuda\n\nEscolha uma opção:",reply_markup=teclado_ajuda()); return
  if a=="manual": await m.reply_text(MANUAL,reply_markup=teclado_ajuda()); return
  if a=="rota": await m.reply_text(montar_rota_atual(),reply_markup=teclado_ajuda()); return
