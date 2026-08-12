@@ -95,19 +95,48 @@ def montar_resumo_horarios(agora=None):
     agora=agora or agora_local(); hs=HORARIOS["principal"]; primeiro,ultimo=hs[0],hs[-1]
     if agora.weekday()>=5:
         return f"🚌 <b>Circular UFRB — Principal</b>\n\nO Circular opera de segunda a sexta-feira.\n\n🕐 <b>Primeiro horário:</b> <b>{primeiro['hora']}</b>\n🌙 <b>Último horário:</b> <b>{ultimo['hora']}</b>"
+
+    atual=viagem_em_andamento(agora)
     prox=proximo_horario(agora)
-    if prox is None:
+
+    if prox is None and atual is None:
         return f"🚌 <b>Circular UFRB — Principal</b>\n\nAs viagens de hoje já encerraram.\n\n🕐 <b>Primeiro horário:</b> <b>{primeiro['hora']}</b>\n🌙 <b>Último horário:</b> <b>{ultimo['hora']}</b>"
-    ic,nome=_periodo(agora); idx=hs.index(prox); proximas=hs[idx:idx+4]; linhas=["🚌 <b>Circular UFRB — Principal</b>",f"{ic} <b>Próximos horários — {nome}</b>",""]
-    for n,h in enumerate(proximas,1):
-        if n==1:
+
+    ic,nome=_periodo(agora)
+    linhas=["🚌 <b>Circular UFRB — Principal</b>",f"{ic} <b>Horários — {nome}</b>",""]
+    exibidas=[]
+
+    if atual is not None:
+        p=estimar_chegada_portao_1(atual["hora"]); pico=" ⚠️ pico" if p["pico"] else ""
+        linhas += [
+            "🔵 <b>Volta em andamento</b>",
+            f"  {_frase_saida(atual['origem'])}: <b>{atual['hora']}</b>{pico}",
+            f"  🚪 Chegada prevista no Portão 1: <b>{p['inicio']}–{p['fim']}</b>",
+            "  ℹ️ Situação baseada no horário oficial; uma confirmação de ponto tem prioridade.",
+            "",
+        ]
+        exibidas.append(atual)
+
+    if prox is not None:
+        idx=hs.index(prox)
+        limite=3 if atual is not None else 4
+        proximas=hs[idx:idx+limite]
+        exibidas.extend(proximas)
+        for n,h in enumerate(proximas,1):
             p=estimar_chegada_portao_1(h["hora"]); pico=" ⚠️ pico" if p["pico"] else ""
-            linhas += ["🟢 <b>Próxima volta</b>",f"  {_frase_saida(h['origem'])}: <b>{h['hora']}</b>{pico}",f"  🚪 Chega no Portão 1: <b>{p['inicio']}–{p['fim']}</b>"]
-        else: linhas += _volta(h,n)
-        p=estimar_chegada_portao_1(h["hora"])
-        if p["noturno"] and not p["pico"]: linhas.append("  🌙 À noite pode chegar antes da estimativa.")
-        linhas.append("")
-    linhas.append("⚠️ <b>Horários de pico</b> — Pode haver pequenos atrasos." if any(estimar_chegada_portao_1(h["hora"])["pico"] for h in proximas) else "ℹ️ Horários do Portão 1 são previsões e podem variar.")
+            if n==1:
+                linhas += [
+                    "🟢 <b>Próxima volta</b>",
+                    f"  {_frase_saida(h['origem'])}: <b>{h['hora']}</b>{pico}",
+                    f"  🚪 Chega no Portão 1: <b>{p['inicio']}–{p['fim']}</b>",
+                ]
+            else:
+                linhas += _volta(h,n)
+            if p["noturno"] and not p["pico"]:
+                linhas.append("  🌙 À noite pode chegar antes da estimativa.")
+            linhas.append("")
+
+    linhas.append("⚠️ <b>Horários de pico</b> — Pode haver pequenos atrasos." if any(estimar_chegada_portao_1(h["hora"])["pico"] for h in exibidas) else "ℹ️ Horários do Portão 1 são previsões e podem variar.")
     return "\n".join(linhas)
 
 def listar_horarios_periodo(periodo):
