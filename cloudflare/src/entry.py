@@ -13,6 +13,8 @@ AVISOS_PREDEFINIDOS = [
     "🚪 Portão 2 fechado",
     "⚠️ Circular operando com atraso",
     "🛠️ Circular temporariamente fora de operação",
+    "🛠️ Circular quebrou em meio ao trajeto",
+    "🌧️ Tempo chuvoso, circular pode demorar mais do que o esperado",
     "🚌 Rota alterada temporariamente",
     "📅 Horários especiais hoje",
 ]
@@ -55,11 +57,16 @@ def teclado_admin_avisos():
     for i,texto in enumerate(AVISOS_PREDEFINIDOS):
         linhas.append([{"text":texto,"callback_data":f"aviso_add_{i}"}])
     linhas += [
+        [{"text":"✏️ Aviso personalizado","callback_data":"aviso_personalizado"}],
         [{"text":"🗑️ Remover aviso","callback_data":"aviso_remover_menu"}],
         [{"text":"🧹 Limpar todos","callback_data":"aviso_limpar"}],
         [{"text":"⬅️ Voltar ao menu","callback_data":"menu"}],
     ]
     return {"inline_keyboard":linhas}
+
+
+def teclado_cancelar_personalizado():
+    return {"inline_keyboard":[[{"text":"❌ Cancelar","callback_data":"aviso_personalizado_cancelar"}]]}
 
 
 def teclado_remover_avisos(avisos):
@@ -129,7 +136,7 @@ class Default(WorkerEntrypoint):
         if not self._telegram_admin(telegram_id):
             return {"ok_http":True,"status":200,"telegram":{"ok":True}}
         dados=await self._estado().listar_avisos()
-        texto=texto_avisos(dados.get("avisos",[])) + "\n\n🔐 Painel administrativo\nEscolha um aviso pronto ou gerencie os ativos."
+        texto=texto_avisos(dados.get("avisos",[])) + "\n\n🔐 Painel administrativo\nEscolha um aviso pronto, escreva um personalizado ou gerencie os ativos."
         return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN,chat_id,texto,reply_markup=teclado_admin_avisos())
 
     async def _acao(self, acao, chat_id, telegram_id=None):
@@ -140,6 +147,23 @@ class Default(WorkerEntrypoint):
         if acao=="listar_horarios": return await self._listar(chat_id)
         if acao=="rota": return await self._rota(chat_id)
         if acao=="avisos": return await self._avisos(chat_id,telegram_id)
+
+        if acao=="aviso_personalizado":
+            if not self._telegram_admin(telegram_id):
+                return {"ok_http":True,"status":200,"telegram":{"ok":True}}
+            await self._estado().iniciar_aviso_personalizado()
+            return await enviar_mensagem(
+                self.env.TELEGRAM_BOT_TOKEN,
+                chat_id,
+                "✏️ Envie agora a mensagem que deseja publicar como aviso.\n\nEla será salva exatamente como você enviar e contará no limite de 3 avisos ativos.",
+                reply_markup=teclado_cancelar_personalizado(),
+            )
+
+        if acao=="aviso_personalizado_cancelar":
+            if not self._telegram_admin(telegram_id):
+                return {"ok_http":True,"status":200,"telegram":{"ok":True}}
+            await self._estado().cancelar_aviso_personalizado()
+            return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN,chat_id,"❌ Criação de aviso personalizado cancelada.",reply_markup=teclado_admin_avisos())
 
         if acao.startswith("aviso_add_"):
             if not self._telegram_admin(telegram_id):
@@ -211,7 +235,7 @@ class Default(WorkerEntrypoint):
         parsed=urlparse(request.url); caminho=parsed.path; method=request.method
 
         if method=="GET" and caminho=="/health":
-            return Response.json({"status":"ok","service":"busivs-bot","runtime":"cloudflare-worker","stage":"avisos-alpha-1"})
+            return Response.json({"status":"ok","service":"busivs-bot","runtime":"cloudflare-worker","stage":"avisos-alpha-2"})
 
         if method=="POST" and caminho=="/admin/telegram/set-webhook":
             if not self._admin_ok(request): return Response.json({"ok":False,"error":"admin_secret_invalid"},status=403)
@@ -237,6 +261,20 @@ class Default(WorkerEntrypoint):
                 if chat_id is None: return Response.json({"ok":True,"handled":False})
                 texto=(mensagem.get("text") or "").strip()
                 usuario=(mensagem.get("from") or {}).get("id")
+
+                if self._telegram_admin(usuario):
+                    modo=await self._estado().aguardando_aviso_personalizado()
+                    if modo.get("ativo"):
+                        if texto.startswith("/"):
+                            await self._estado().cancelar_aviso_personalizado()
+                        elif texto:
+                            resultado=await self._estado().salvar_aviso_personalizado(texto)
+                            avisos=resultado.get("avisos",[])
+                            msg="✅ Aviso personalizado já estava ativo." if resultado.get("duplicado") else "✅ Aviso personalizado publicado."
+                            msg += "\n\n" + texto_avisos(avisos)
+                            envio=await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN,chat_id,msg,reply_markup=teclado_admin_avisos())
+                            return Response.json({"ok":envio["ok_http"],"handled":True,"custom_notice":True},status=200 if envio["ok_http"] else 502)
+
                 comandos={"/start":"menu","/onde":"onde","/local":"local","/rota":"rota","/horarios":"horarios","/listar_horarios":"listar_horarios"}
                 envio=await self._acao(comandos.get(texto,"menu" if texto=="/start" else "desconhecido"),chat_id,usuario)
                 return Response.json({"ok":envio["ok_http"],"handled":True},status=200 if envio["ok_http"] else 502)
