@@ -5,12 +5,11 @@ from dados import ROTA
 # A confirmação colaborativa registra o momento do clique, não o instante exato
 # em que o ônibus cruzou o ponto. Por isso esta validação é deliberadamente
 # conservadora: pontos próximos nunca são bloqueados apenas por tempo.
-#
-# Para saltos longos, porém, exigimos uma janela mínima antes de aceitar a nova
-# confirmação. Isso impede sequências como Biblioteca -> Pavilhão I -> RU em
-# poucos segundos sem tornar o sistema rígido para atrasos reais.
 SEGUNDOS_POR_TRECHO_LONGO = 25
 DISTANCIA_LIVRE = 2
+
+AVISO_PORTAO_1_FECHADO = "🚪 Portão 1 fechado"
+AVISO_PORTAO_2_FECHADO = "🚪 Portão 2 fechado"
 
 
 def _parse_datetime(valor):
@@ -29,19 +28,11 @@ def _ocorrencias(ponto_id):
 
 
 def _distancia_ciclica(origem, destino):
-    """Menor quantidade plausível de trechos entre dois pontos.
-
-    A rota começa e termina no RU. Para permitir uma volta seguinte, tratamos
-    a sequência como cíclica, mas não contamos duas vezes o RU duplicado nas
-    extremidades.
-    """
     origens = _ocorrencias(origem)
     destinos = _ocorrencias(destino)
     if not origens or not destinos:
         return None
 
-    # O último item repete o primeiro (RU), então existem len(ROTA)-1 trechos
-    # efetivos em um ciclo completo.
     ciclo = max(1, len(ROTA) - 1)
     distancias = []
 
@@ -57,20 +48,31 @@ def _distancia_ciclica(origem, destino):
     return min(distancias) if distancias else None
 
 
-def validar_deslocamento(estado, novo_ponto, agora):
-    """Valida apenas deslocamentos temporalmente absurdos.
+def _distancia_operacional(origem, destino, avisos):
+    """Ajusta somente exceções de deslocamento já conhecidas.
 
-    Retorna ``None`` quando não há motivo para bloquear. Quando o salto é longo
-    demais para o tempo decorrido, retorna um resultado compatível com o fluxo
-    de rejeição de ``registrar_passagem``.
+    Portão fechado significa acesso fechado, não ponto removido. Quando o P1
+    fecha, o ônibus ainda atende o P1 e pode retornar ao campus pelo P2. Assim,
+    P1 -> P2 deve ser aceito como um deslocamento operacional curto, apesar de
+    ser contrário à sequência da rota padrão.
     """
+    avisos = set(avisos or [])
+
+    if AVISO_PORTAO_1_FECHADO in avisos and origem == "portao_1" and destino == "portao_2":
+        return 1
+
+    return _distancia_ciclica(origem, destino)
+
+
+def validar_deslocamento(estado, novo_ponto, agora, avisos=None):
+    """Valida deslocamentos temporalmente absurdos considerando desvios ativos."""
     ponto_atual = estado.get("ponto_atual")
     horario_atual = _parse_datetime(estado.get("horario"))
 
     if not ponto_atual or not horario_atual or ponto_atual == novo_ponto:
         return None
 
-    distancia = _distancia_ciclica(ponto_atual, novo_ponto)
+    distancia = _distancia_operacional(ponto_atual, novo_ponto, avisos)
     if distancia is None or distancia <= DISTANCIA_LIVRE:
         return None
 
