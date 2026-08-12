@@ -259,12 +259,10 @@ def montar_localizacao(estado,agora=None):
         pre=_pre_saida(agora)
         if pre:
             minutos=max(1,(pre["faltam_segundos"]+59)//60)
-            return estado,(f"🟡 Janela de pré-saída ativa.\n\n"
-                          f"⏰ Saída oficial: {pre['hora']} — Garagem\n"
-                          f"⌛ Faltam aproximadamente {minutos} min.\n\n"
-                          "🚌 Sem confirmação recente, o ônibus pode ainda estar na Garagem ou já ter iniciado o percurso.\n"
-                          "📍 Uma confirmação de ponto agora tem prioridade sobre essa estimativa.\n\n"
-                          "ℹ️ O horário oficial é uma referência e pode haver pequena antecipação ou atraso.")
+            return estado,("🅿️ Ônibus na Garagem.\n\n"
+                          f"⏰ Saída prevista em aproximadamente {minutos} min.\n"
+                          f"🕐 Volta das {pre['hora']} — Garagem\n\n"
+                          "ℹ️ Horário oficial; pode haver atraso na saída.")
         if atual:return estado,f"🚌 Há uma volta prevista em andamento.\n🕐 Saída oficial: {atual['hora']} — {atual['origem']}\n➡️ Sentido provável: RUA\n\nℹ️ Não há confirmação recente de passagem; o ônibus pode estar adiantado ou atrasado."
         if ret:return estado,_retorno(ret,prox)
         if ag:return estado,_aguardando(ag)
