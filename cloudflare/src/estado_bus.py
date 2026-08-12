@@ -68,6 +68,22 @@ class BusState(DurableObject):
         await self._salvar_avisos([])
         return {"ok": True, "avisos": []}
 
+    async def iniciar_aviso_personalizado(self):
+        await self.ctx.storage.put("aguardando_aviso_personalizado", True)
+        return {"ok": True}
+
+    async def cancelar_aviso_personalizado(self):
+        await self.ctx.storage.delete("aguardando_aviso_personalizado")
+        return {"ok": True}
+
+    async def aguardando_aviso_personalizado(self):
+        ativo = await self.ctx.storage.get("aguardando_aviso_personalizado")
+        return {"ativo": bool(ativo)}
+
+    async def salvar_aviso_personalizado(self, texto):
+        await self.ctx.storage.delete("aguardando_aviso_personalizado")
+        return await self.adicionar_aviso(texto)
+
     async def localizacao(self):
         estado = await self._carregar()
         estado, texto = montar_localizacao(estado)
