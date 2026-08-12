@@ -8,11 +8,7 @@ HORARIOS = {
         {"hora":"07:55","origem":"RU/Residencias"},
         {"hora":"11:30","origem":"Garagem"},
         {"hora":"11:55","origem":"RU/Residencias"},
-        {"hora":"12:20","origem":"RU/Residencias"},
-        {"hora":"18:30","origem":"Garagem","teste":True},
-        {"hora":"18:50","origem":"RU/Residencias","teste":True},
-        {"hora":"19:10","origem":"RU/Residencias","teste":True},
-        {"hora":"19:30","origem":"RU/Residencias","teste":True}
+        {"hora":"12:20","origem":"RU/Residencias"}
     ]
 }
 
