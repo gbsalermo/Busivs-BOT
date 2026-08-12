@@ -44,6 +44,7 @@ def teclado_menu(uid=None):
  l=[[InlineKeyboardButton("🚌 Onde está o ônibus?",callback_data="onde")],[InlineKeyboardButton("📍 Informar ponto atual",callback_data="local")],[InlineKeyboardButton("⏰ Próximos horários",callback_data="horarios")],[InlineKeyboardButton("📋 Listar horários",callback_data="listar_horarios")],[InlineKeyboardButton("🚐 Confirmar que micro está rodando",callback_data="micro_confirmar")]]
  if admin_ok(uid): l.append([InlineKeyboardButton("📢 Avisos",callback_data="avisos")])
  l.append([InlineKeyboardButton("❓ Ajuda",callback_data="ajuda")]); return InlineKeyboardMarkup(l)
+def teclado_confirmar_micro(): return InlineKeyboardMarkup([[InlineKeyboardButton("✅ Sim, está rodando",callback_data="micro_confirmar_sim")],[InlineKeyboardButton("❌ Voltar",callback_data="menu")]])
 def teclado_voltar(): return InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Voltar ao menu",callback_data="menu")]])
 def teclado_ajuda(): return InlineKeyboardMarkup([[InlineKeyboardButton("🗺️ Rota atual",callback_data="rota")],[InlineKeyboardButton("📖 Dicas para uso do BOT",callback_data="manual")],[InlineKeyboardButton("⬅️ Voltar ao menu",callback_data="menu")]])
 def teclado_periodos(): return InlineKeyboardMarkup([[InlineKeyboardButton("🌅 Manhã",callback_data="periodo_manha"),InlineKeyboardButton("🍽️ Almoço",callback_data="periodo_meio_dia")],[InlineKeyboardButton("🌤️ Tarde",callback_data="periodo_tarde"),InlineKeyboardButton("🌙 Noite",callback_data="periodo_noite")],[InlineKeyboardButton("⬅️ Voltar ao menu",callback_data="menu")]])
@@ -73,7 +74,8 @@ async def callback(u:Update,c:ContextTypes.DEFAULT_TYPE):
  if a=="ajuda": await m.reply_text("❓ Ajuda\n\nEscolha uma opção:",reply_markup=teclado_ajuda()); return
  if a=="manual": await m.reply_text(MANUAL,reply_markup=teclado_ajuda()); return
  if a=="rota": await m.reply_text(montar_rota_atual(),reply_markup=teclado_ajuda()); return
- if a=="micro_confirmar":
+ if a=="micro_confirmar": await m.reply_text("🚐 Você viu o micro?",reply_markup=teclado_confirmar_micro()); return
+ if a=="micro_confirmar_sim":
   r=ESTADO.ativar_micro(); t="🚐 Obrigado pela informação! O micro foi marcado como em operação." if not r.get("ja_ativo") else "🚐 O micro já estava marcado como em operação. Obrigado por confirmar!"; await m.reply_text(t+"\n\n"+resumo_micro(),parse_mode="HTML",reply_markup=teclado_voltar()); return
  if a=="micro_desativar":
   if admin_ok(uid): ESTADO.desativar_micro(); await m.reply_text("🚐 Micro desativado pelo administrador.",reply_markup=teclado_admin_avisos())
