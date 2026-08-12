@@ -1,6 +1,7 @@
 import json
 from workers import DurableObject
-from regras import estado_vazio, montar_localizacao, registrar_passagem
+from regras import agora_local, estado_vazio, montar_localizacao, registrar_passagem
+from validacao_rota import validar_deslocamento
 
 
 class BusState(DurableObject):
@@ -24,7 +25,18 @@ class BusState(DurableObject):
 
     async def registrar(self, ponto_id, telegram_id=None):
         estado = await self._carregar()
-        estado, resultado = registrar_passagem(estado, ponto_id, telegram_id)
+        agora = agora_local()
+
+        bloqueio = validar_deslocamento(estado, ponto_id, agora)
+        if bloqueio is not None:
+            return bloqueio
+
+        estado, resultado = registrar_passagem(
+            estado,
+            ponto_id,
+            telegram_id,
+            agora=agora,
+        )
         await self._salvar(estado)
         return resultado
 
