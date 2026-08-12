@@ -2,7 +2,18 @@ HORARIOS = {
     "principal": [
         {"hora":"06:25","origem":"Garagem"},{"hora":"06:50","origem":"RU/Residencias"},{"hora":"07:10","origem":"RU/Residencias"},{"hora":"07:25","origem":"RU/Residencias"},{"hora":"07:40","origem":"RU/Residencias"},{"hora":"07:55","origem":"RU/Residencias"},{"hora":"09:35","origem":"Garagem"},{"hora":"10:00","origem":"Garagem"},{"hora":"11:30","origem":"Garagem"},{"hora":"11:55","origem":"RU/Residencias"},{"hora":"12:20","origem":"RU/Residencias"},{"hora":"13:00","origem":"Garagem"},{"hora":"13:25","origem":"RU/Residencias"},{"hora":"13:45","origem":"RU/Residencias"},{"hora":"14:00","origem":"RU/Residencias"},{"hora":"15:35","origem":"Garagem"},{"hora":"16:00","origem":"Garagem"},{"hora":"17:30","origem":"Garagem"},{"hora":"17:55","origem":"RU/Residencias"},{"hora":"18:15","origem":"RU/Residencias"},{"hora":"20:40","origem":"Garagem"},{"hora":"21:40","origem":"Garagem"},{"hora":"22:30","origem":"Garagem"}
     ],
-    "micro": []
+    "micro": [
+        {"hora":"07:25","origem":"Garagem"},
+        {"hora":"07:40","origem":"RU/Residencias"},
+        {"hora":"07:55","origem":"RU/Residencias"},
+        {"hora":"11:30","origem":"Garagem"},
+        {"hora":"11:55","origem":"RU/Residencias"},
+        {"hora":"12:20","origem":"RU/Residencias"},
+        {"hora":"18:30","origem":"Garagem","teste":True},
+        {"hora":"18:50","origem":"RU/Residencias","teste":True},
+        {"hora":"19:10","origem":"RU/Residencias","teste":True},
+        {"hora":"19:30","origem":"RU/Residencias","teste":True}
+    ]
 }
 
 PONTOS_LISTA = [
