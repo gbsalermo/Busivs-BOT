@@ -616,3 +616,173 @@ observar o serviço em produção e atacar uma melhoria pequena por vez
 ```
 
 > **O BUSIVS deixou de ser apenas um protótipo local. A versão principal está online; agora o trabalho é fazê-la funcionar cada vez melhor antes de aumentar seu escopo.**
+
+---
+
+# 24. Atualização operacional — 12/08/2026
+
+Esta seção registra o procedimento atual usado depois da implantação do modo Micro e do painel administrativo. Quando houver conflito com instruções antigas deste documento, considerar esta seção como a referência mais recente.
+
+## 24.1 Configurar o administrador no Worker pela linha de comando
+
+A produção usa a variável/secret:
+
+```text
+ADMIN_TELEGRAM_ID
+```
+
+Ela deve conter **o ID numérico da conta Telegram do administrador**, e não telefone, username ou token do bot.
+
+O código não deve receber esse ID diretamente no repositório. A configuração deve ficar no ambiente do Worker.
+
+No **Git Bash**, entrar na pasta `cloudflare` do projeto e confirmar que o Wrangler está operando sobre o Worker correto:
+
+```bash
+cd /d/Projetos/Python/BUSIVIS/Busivs-BOT/cloudflare
+npx wrangler whoami
+npx wrangler secret list --name busivs-bot
+```
+
+Para cadastrar ou atualizar `ADMIN_TELEGRAM_ID` sem deixar o valor visível no histórico do terminal:
+
+```bash
+read -s ADMIN_TELEGRAM_ID
+```
+
+Colar o ID numérico do Telegram e pressionar Enter. Em seguida executar **em outro comando**:
+
+```bash
+printf '%s' "$ADMIN_TELEGRAM_ID" | npx wrangler secret put ADMIN_TELEGRAM_ID --name busivs-bot
+```
+
+O resultado esperado é equivalente a:
+
+```text
+Success! Uploaded secret ADMIN_TELEGRAM_ID
+```
+
+Somente depois executar:
+
+```bash
+unset ADMIN_TELEGRAM_ID
+```
+
+**IMPORTANTE:** não colocar `unset ADMIN_TELEGRAM_ID` na mesma linha do `wrangler secret put`. Caso isso aconteça, o Wrangler interpreta `unset` como argumento e retorna erro semelhante a:
+
+```text
+Unknown arguments: unset, ADMIN_TELEGRAM_ID
+```
+
+Confirmar finalmente que o secret existe no Worker:
+
+```bash
+npx wrangler secret list --name busivs-bot
+```
+
+A lista de produção deve conter pelo menos:
+
+```text
+TELEGRAM_BOT_TOKEN
+TELEGRAM_WEBHOOK_SECRET
+ADMIN_TELEGRAM_ID
+```
+
+O arquivo `cloudflare/wrangler.jsonc` usa:
+
+```json
+"keep_vars": true
+```
+
+Portanto os secrets/variáveis existentes devem ser preservados durante deploys normais.
+
+Depois da configuração, abrir o bot no Telegram e executar:
+
+```text
+/start
+```
+
+Para a conta cujo Telegram ID corresponde a `ADMIN_TELEGRAM_ID`, o menu deve incluir:
+
+```text
+📢 Avisos
+```
+
+Usuários comuns não devem ver esse botão.
+
+Quando o micro estiver ativo, o painel administrativo também permite:
+
+```text
+🚐 Desativar micro
+```
+
+## 24.2 Rodar a versão local pela branch alpha
+
+A branch destinada a desenvolvimento/testes locais é:
+
+```text
+alpha
+```
+
+Ela usa polling do Telegram e **não deve ser conectada ao deploy de produção da Cloudflare**.
+
+Fluxo recomendado para iniciar um teste local:
+
+```bash
+cd /d/Projetos/Python/BUSIVIS/Busivs-BOT
+git switch alpha
+git pull origin alpha
+python local_test/bot_local.py
+```
+
+O bot local lê o arquivo `.env` na raiz do projeto. Ele deve conter localmente:
+
+```env
+TELEGRAM_BOT_TOKEN=token_do_bot
+ADMIN_TELEGRAM_ID=id_numerico_do_administrador
+```
+
+O `.env` **não deve ser commitado**.
+
+A execução correta mostra no terminal:
+
+```text
+BUSIVS ALPHA LOCAL iniciado por polling.
+```
+
+Enquanto o polling local estiver rodando, utilizar o Telegram normalmente para validar menus, callbacks e regras.
+
+Para encerrar:
+
+```text
+Ctrl + C
+```
+
+O estado de teste local fica em:
+
+```text
+local_test/estado_teste.json
+```
+
+Esse arquivo pode preservar entre reinicializações informações como avisos, estado do principal e estado do micro. Se um teste começar com informação antiga, verificar esse arquivo/estado antes de concluir que existe bug no código.
+
+Arquivos temporários locais como `__pycache__`, `.wrangler` e estado de teste não devem ser tratados como alterações funcionais do projeto.
+
+## 24.3 Diferença prática entre main e alpha
+
+```text
+main
+→ produção
+→ Cloudflare Worker
+→ webhook Telegram
+→ Durable Object compartilhado
+→ mudanças podem disparar deploy
+
+alpha
+→ desenvolvimento/teste local
+→ python local_test/bot_local.py
+→ polling Telegram
+→ estado local em JSON
+→ não deve afetar produção
+```
+
+Antes de alterar uma regra em produção, a preferência continua sendo validar primeiro na `alpha` quando a mudança puder ser reproduzida localmente.
