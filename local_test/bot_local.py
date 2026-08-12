@@ -41,7 +41,8 @@ def limitar_resumo_principal(texto, quantidade=2):
  if rodape is None:return "\n".join(linhas[:inicio]).rstrip()
  return "\n".join(linhas[:inicio]+linhas[rodape:]).strip()
 def teclado_menu(uid=None):
- l=[[InlineKeyboardButton("🚌 Onde está o ônibus?",callback_data="onde")],[InlineKeyboardButton("📍 Informar ponto atual",callback_data="local")],[InlineKeyboardButton("⏰ Próximos horários",callback_data="horarios")],[InlineKeyboardButton("📋 Listar horários",callback_data="listar_horarios")],[InlineKeyboardButton("🚐 Confirmar que micro está rodando",callback_data="micro_confirmar")]]
+ rotulo_micro="🚐 Micro em operação ✅" if ESTADO.micro_esta_ativo() else "🚐 Confirmar que micro está rodando"
+ l=[[InlineKeyboardButton("🚌 Onde está o ônibus?",callback_data="onde")],[InlineKeyboardButton("📍 Informar ponto atual",callback_data="local")],[InlineKeyboardButton("⏰ Próximos horários",callback_data="horarios")],[InlineKeyboardButton("📋 Listar horários",callback_data="listar_horarios")],[InlineKeyboardButton(rotulo_micro,callback_data="micro_confirmar")]]
  if admin_ok(uid): l.append([InlineKeyboardButton("📢 Avisos",callback_data="avisos")])
  l.append([InlineKeyboardButton("❓ Ajuda",callback_data="ajuda")]); return InlineKeyboardMarkup(l)
 def teclado_confirmar_micro(): return InlineKeyboardMarkup([[InlineKeyboardButton("✅ Sim, está rodando",callback_data="micro_confirmar_sim")],[InlineKeyboardButton("❌ Voltar",callback_data="menu")]])
