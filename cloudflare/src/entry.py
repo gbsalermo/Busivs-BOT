@@ -2,7 +2,7 @@ from urllib.parse import urlparse
 from workers import Response, WorkerEntrypoint
 from estado_bus import BusState
 from dados import PONTOS, ROTULOS_PONTOS
-from regras import listar_horarios_periodo, montar_resumo_horarios, montar_rota_atual
+from regras import listar_horarios_periodo, montar_rota_atual
 from telegram_api import configurar_webhook, enviar_mensagem, remover_webhook, responder_callback
 
 HEADER_SEGREDO_TELEGRAM = "X-Telegram-Bot-Api-Secret-Token"
@@ -61,7 +61,8 @@ class Default(WorkerEntrypoint):
         return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN,chat_id,"📍 Onde o ônibus acabou de passar?\n\nToque no ponto correspondente.",reply_markup=teclado_pontos())
 
     async def _horarios(self, chat_id):
-        return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN,chat_id,montar_resumo_horarios(),parse_mode="HTML",reply_markup=teclado_voltar())
+        dados=await self._estado().resumo_horarios()
+        return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN,chat_id,dados["texto"],parse_mode="HTML",reply_markup=teclado_voltar())
 
     async def _listar(self, chat_id):
         return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN,chat_id,"📋 Qual período você quer consultar?",reply_markup=teclado_periodos())
