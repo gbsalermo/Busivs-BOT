@@ -512,6 +512,33 @@ RESET DE ESTADO
 
 Não tratar as três como se fossem "reiniciar o bot".
 
+### Redeploy manual pela `main`
+
+Se for necessário forçar um novo deploy da mesma versão sem alterar arquivos, pode ser usado um **commit vazio** na `main`:
+
+```bash
+git checkout main
+git pull origin main
+git commit --allow-empty -m "ci: restart production worker"
+git push origin main
+```
+
+Como a Cloudflare acompanha a `main`, esse push inicia um novo build/deploy do Worker.
+
+Importante:
+
+```text
+commit vazio / redeploy
+→ republica o Worker
+→ NÃO limpa o Durable Object
+
+estado do ônibus incorreto/travado
+→ usar reset de BusState
+→ não depender de redeploy
+```
+
+No futuro, a administração remota deve oferecer uma ação própria para resetar o estado sem precisar acessar Git ou Cloudflare.
+
 ---
 
 # 16. Fase atual — melhorias pequenas de produção
@@ -616,6 +643,11 @@ como enviar avisos pelo celular
 como alterar rota quando portões fecharem
 como ajustar estimativas durante desvios
 como fazer redeploy/rollback/reset de estado corretamente
+
+REDEPLOY MANUAL
+git commit --allow-empty na main
+→ novo build/deploy Cloudflare
+→ não limpa BusState
 
 PRIORIDADE
 confiabilidade + eficiência + simplicidade
