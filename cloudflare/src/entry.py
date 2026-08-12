@@ -78,13 +78,59 @@ def teclado_remover_avisos(avisos):
     return {"inline_keyboard":linhas}
 
 
-def texto_avisos(avisos):
+def texto_avisos(avisos, mostrar_contador=False):
+    contador=f" ({len(avisos)}/3)" if mostrar_contador else ""
     if not avisos:
-        return "📢 Avisos\n\nNenhum aviso operacional ativo no momento."
-    linhas=["📢 Avisos ativos",""]
+        return f"📢 Avisos{contador}\n\nNenhum aviso operacional ativo no momento."
+    linhas=[f"📢 Avisos ativos{contador}",""]
     for aviso in avisos:
         linhas.append(f"• {aviso}")
     return "\n".join(linhas)
+
+
+def impacto_localizacao(avisos):
+    if "🛠️ Circular temporariamente fora de operação" in avisos:
+        return (
+            "🚨 Situação operacional\n"
+            "O circular foi informado como temporariamente fora de operação. "
+            "A última localização registrada não garante que o veículo continue em movimento."
+        )
+    if "🛠️ Circular quebrou em meio ao trajeto" in avisos:
+        return (
+            "🚨 Situação operacional\n"
+            "Há aviso de quebra do circular durante o trajeto. A volta atual pode não ser concluída, "
+            "e a última localização registrada pode representar apenas o ponto onde a operação foi interrompida."
+        )
+
+    mensagens=[]
+    if "⚠️ Circular operando com atraso" in avisos:
+        mensagens.append("⚠️ Há atraso operacional informado; posição e previsões podem estar deslocadas em relação ao horário oficial.")
+    if "🌧️ Tempo chuvoso, circular pode demorar mais do que o esperado" in avisos:
+        mensagens.append("🌧️ Com chuva, o percurso pode levar mais tempo que o estimado.")
+    if "🚌 Rota alterada temporariamente" in avisos:
+        mensagens.append("🚌 Há alteração temporária de rota; o próximo ponto previsto pode não seguir a rota padrão.")
+    if "🚪 Portão 1 fechado" in avisos or "🚪 Portão 2 fechado" in avisos:
+        mensagens.append("🚪 Há fechamento de portão informado; rota e tempo de volta podem estar diferentes do padrão.")
+    return "\n".join(mensagens)
+
+
+def impacto_horarios(avisos):
+    mensagens=[]
+    if "🛠️ Circular temporariamente fora de operação" in avisos:
+        mensagens.append("🚨 O circular está informado como temporariamente fora de operação. As próximas saídas podem não ocorrer até a normalização.")
+    if "🛠️ Circular quebrou em meio ao trajeto" in avisos:
+        mensagens.append("🚨 A volta em andamento foi prejudicada por uma quebra. Ela pode não ser concluída e as próximas saídas também podem sofrer atraso ou cancelamento.")
+    if "⚠️ Circular operando com atraso" in avisos:
+        mensagens.append("⚠️ Os horários abaixo são oficiais, mas há atraso operacional informado.")
+    if "🌧️ Tempo chuvoso, circular pode demorar mais do que o esperado" in avisos:
+        mensagens.append("🌧️ O tempo chuvoso pode aumentar a duração das voltas e afetar os horários seguintes.")
+    if "🚌 Rota alterada temporariamente" in avisos:
+        mensagens.append("🚌 A rota está alterada temporariamente; a duração das voltas pode mudar.")
+    if "🚪 Portão 1 fechado" in avisos or "🚪 Portão 2 fechado" in avisos:
+        mensagens.append("🚪 Fechamento de portão pode aumentar a duração da volta e impactar horários posteriores.")
+    if "📅 Horários especiais hoje" in avisos:
+        mensagens.append("📅 Há horários especiais informados; a grade padrão abaixo pode não representar toda a operação de hoje.")
+    return "\n".join(mensagens)
 
 
 class Default(WorkerEntrypoint):
@@ -103,6 +149,10 @@ class Default(WorkerEntrypoint):
             return False
         return bool(esperado and str(telegram_id)==esperado)
 
+    async def _avisos_ativos(self):
+        dados=await self._estado().listar_avisos()
+        return dados.get("avisos",[])
+
     async def _menu(self, chat_id):
         envio=await enviar_mensagem(
             self.env.TELEGRAM_BOT_TOKEN,
@@ -110,21 +160,30 @@ class Default(WorkerEntrypoint):
             "🚌 BUSIVS BOT\n\nAcompanhe o circular da UFRB de forma colaborativa.\n\nEscolha uma opção:",
             reply_markup=teclado_menu(),
         )
-        dados=await self._estado().listar_avisos()
-        avisos=dados.get("avisos",[])
+        avisos=await self._avisos_ativos()
         if avisos:
             return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN,chat_id,texto_avisos(avisos))
         return envio
 
     async def _onde(self, chat_id):
         dados=await self._estado().localizacao()
-        return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN,chat_id,dados["texto"],reply_markup=teclado_voltar())
+        avisos=await self._avisos_ativos()
+        impacto=impacto_localizacao(avisos)
+        texto=dados["texto"]
+        if impacto:
+            texto += "\n\n" + impacto
+        return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN,chat_id,texto,reply_markup=teclado_voltar())
 
     async def _local(self, chat_id):
         return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN,chat_id,"📍 Onde o ônibus acabou de passar?\n\nToque no ponto correspondente.",reply_markup=teclado_pontos())
 
     async def _horarios(self, chat_id):
-        return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN,chat_id,montar_resumo_horarios(),parse_mode="HTML",reply_markup=teclado_voltar())
+        texto=montar_resumo_horarios()
+        avisos=await self._avisos_ativos()
+        impacto=impacto_horarios(avisos)
+        if impacto:
+            texto += "\n\n<b>⚠️ Situação operacional</b>\n" + impacto
+        return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN,chat_id,texto,parse_mode="HTML",reply_markup=teclado_voltar())
 
     async def _listar(self, chat_id):
         return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN,chat_id,"📋 Qual período você quer consultar?",reply_markup=teclado_periodos())
@@ -135,9 +194,27 @@ class Default(WorkerEntrypoint):
     async def _avisos(self, chat_id, telegram_id):
         if not self._telegram_admin(telegram_id):
             return {"ok_http":True,"status":200,"telegram":{"ok":True}}
-        dados=await self._estado().listar_avisos()
-        texto=texto_avisos(dados.get("avisos",[])) + "\n\n🔐 Painel administrativo\nEscolha um aviso pronto, escreva um personalizado ou gerencie os ativos."
+        avisos=await self._avisos_ativos()
+        texto=texto_avisos(avisos,mostrar_contador=True) + "\n\n🔐 Painel administrativo\nEscolha um aviso pronto, escreva um personalizado ou gerencie os ativos."
         return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN,chat_id,texto,reply_markup=teclado_admin_avisos())
+
+    async def _resultado_adicao_aviso(self, chat_id, resultado, personalizado=False):
+        avisos=resultado.get("avisos",[])
+        if resultado.get("ok"):
+            if resultado.get("duplicado"):
+                msg="✅ Esse aviso já estava ativo."
+            else:
+                msg="✅ Aviso personalizado publicado." if personalizado else "✅ Aviso ativado."
+        else:
+            motivo=resultado.get("motivo")
+            if motivo=="limite_atingido":
+                msg="⚠️ Limite de 3 avisos ativos atingido. Remova um aviso antes de adicionar outro."
+            elif motivo=="aviso_muito_longo":
+                msg="⚠️ O aviso é muito longo. Use no máximo 280 caracteres."
+            else:
+                msg="⚠️ Não consegui publicar esse aviso."
+        msg += "\n\n" + texto_avisos(avisos,mostrar_contador=True)
+        return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN,chat_id,msg,reply_markup=teclado_admin_avisos())
 
     async def _acao(self, acao, chat_id, telegram_id=None):
         if acao=="menu": return await self._menu(chat_id)
@@ -151,11 +228,14 @@ class Default(WorkerEntrypoint):
         if acao=="aviso_personalizado":
             if not self._telegram_admin(telegram_id):
                 return {"ok_http":True,"status":200,"telegram":{"ok":True}}
+            avisos=await self._avisos_ativos()
+            if len(avisos)>=3:
+                return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN,chat_id,"⚠️ Já existem 3/3 avisos ativos. Remova um antes de criar outro.",reply_markup=teclado_admin_avisos())
             await self._estado().iniciar_aviso_personalizado()
             return await enviar_mensagem(
                 self.env.TELEGRAM_BOT_TOKEN,
                 chat_id,
-                "✏️ Envie agora a mensagem que deseja publicar como aviso.\n\nEla será salva exatamente como você enviar e contará no limite de 3 avisos ativos.",
+                "✏️ Envie agora a mensagem que deseja publicar como aviso.\n\nMáximo: 280 caracteres.\nEla contará no limite de 3 avisos ativos.",
                 reply_markup=teclado_cancelar_personalizado(),
             )
 
@@ -174,15 +254,12 @@ class Default(WorkerEntrypoint):
             except Exception:
                 return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN,chat_id,"⚠️ Aviso inválido.",reply_markup=teclado_admin_avisos())
             resultado=await self._estado().adicionar_aviso(texto)
-            avisos=resultado.get("avisos",[])
-            msg="✅ Aviso já estava ativo." if resultado.get("duplicado") else "✅ Aviso ativado."
-            msg += "\n\n" + texto_avisos(avisos)
-            return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN,chat_id,msg,reply_markup=teclado_admin_avisos())
+            return await self._resultado_adicao_aviso(chat_id,resultado)
 
         if acao=="aviso_remover_menu":
             if not self._telegram_admin(telegram_id):
                 return {"ok_http":True,"status":200,"telegram":{"ok":True}}
-            dados=await self._estado().listar_avisos(); avisos=dados.get("avisos",[])
+            avisos=await self._avisos_ativos()
             if not avisos:
                 return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN,chat_id,"📢 Não há avisos ativos para remover.",reply_markup=teclado_admin_avisos())
             return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN,chat_id,"🗑️ Escolha o aviso que deseja remover:",reply_markup=teclado_remover_avisos(avisos))
@@ -193,18 +270,23 @@ class Default(WorkerEntrypoint):
             indice=acao.replace("aviso_rem_","",1)
             resultado=await self._estado().remover_aviso(indice)
             msg="✅ Aviso removido." if resultado.get("ok") else "⚠️ Não consegui remover esse aviso."
-            msg += "\n\n" + texto_avisos(resultado.get("avisos",[]))
+            msg += "\n\n" + texto_avisos(resultado.get("avisos",[]),mostrar_contador=True)
             return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN,chat_id,msg,reply_markup=teclado_admin_avisos())
 
         if acao=="aviso_limpar":
             if not self._telegram_admin(telegram_id):
                 return {"ok_http":True,"status":200,"telegram":{"ok":True}}
             await self._estado().limpar_avisos()
-            return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN,chat_id,"🧹 Todos os avisos foram removidos.",reply_markup=teclado_admin_avisos())
+            return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN,chat_id,"🧹 Todos os avisos foram removidos.\n\n📢 Avisos ativos (0/3)",reply_markup=teclado_admin_avisos())
 
         if acao.startswith("periodo_"):
             periodo=acao.replace("periodo_","",1)
-            return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN,chat_id,listar_horarios_periodo(periodo),parse_mode="HTML",reply_markup=teclado_voltar())
+            texto=listar_horarios_periodo(periodo)
+            avisos=await self._avisos_ativos()
+            impacto=impacto_horarios(avisos)
+            if impacto:
+                texto += "\n\n<b>⚠️ Situação operacional</b>\n" + impacto
+            return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN,chat_id,texto,parse_mode="HTML",reply_markup=teclado_voltar())
 
         if acao.startswith("local_"):
             ponto_id=acao.replace("local_","",1)
@@ -235,7 +317,7 @@ class Default(WorkerEntrypoint):
         parsed=urlparse(request.url); caminho=parsed.path; method=request.method
 
         if method=="GET" and caminho=="/health":
-            return Response.json({"status":"ok","service":"busivs-bot","runtime":"cloudflare-worker","stage":"avisos-alpha-2"})
+            return Response.json({"status":"ok","service":"busivs-bot","runtime":"cloudflare-worker","stage":"avisos-alpha-3"})
 
         if method=="POST" and caminho=="/admin/telegram/set-webhook":
             if not self._admin_ok(request): return Response.json({"ok":False,"error":"admin_secret_invalid"},status=403)
@@ -265,14 +347,15 @@ class Default(WorkerEntrypoint):
                 if self._telegram_admin(usuario):
                     modo=await self._estado().aguardando_aviso_personalizado()
                     if modo.get("ativo"):
+                        if texto in {"/cancelar","/cancel"}:
+                            await self._estado().cancelar_aviso_personalizado()
+                            envio=await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN,chat_id,"❌ Criação de aviso personalizado cancelada.",reply_markup=teclado_admin_avisos())
+                            return Response.json({"ok":envio["ok_http"],"handled":True},status=200 if envio["ok_http"] else 502)
                         if texto.startswith("/"):
                             await self._estado().cancelar_aviso_personalizado()
                         elif texto:
                             resultado=await self._estado().salvar_aviso_personalizado(texto)
-                            avisos=resultado.get("avisos",[])
-                            msg="✅ Aviso personalizado já estava ativo." if resultado.get("duplicado") else "✅ Aviso personalizado publicado."
-                            msg += "\n\n" + texto_avisos(avisos)
-                            envio=await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN,chat_id,msg,reply_markup=teclado_admin_avisos())
+                            envio=await self._resultado_adicao_aviso(chat_id,resultado,personalizado=True)
                             return Response.json({"ok":envio["ok_http"],"handled":True,"custom_notice":True},status=200 if envio["ok_http"] else 502)
 
                 comandos={"/start":"menu","/onde":"onde","/local":"local","/rota":"rota","/horarios":"horarios","/listar_horarios":"listar_horarios"}
