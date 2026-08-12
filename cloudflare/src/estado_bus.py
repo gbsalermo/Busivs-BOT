@@ -4,6 +4,7 @@ from regras import agora_local, estado_vazio, montar_localizacao, registrar_pass
 from validacao_rota import validar_deslocamento
 
 MAX_AVISOS_ATIVOS = 3
+MAX_TAMANHO_AVISO = 280
 
 
 class BusState(DurableObject):
@@ -30,23 +31,33 @@ class BusState(DurableObject):
             return []
 
     async def _salvar_avisos(self, avisos):
-        avisos = list(avisos)[-MAX_AVISOS_ATIVOS:]
-        await self.ctx.storage.put("avisos", json.dumps(avisos, ensure_ascii=False))
+        await self.ctx.storage.put(
+            "avisos",
+            json.dumps(list(avisos)[:MAX_AVISOS_ATIVOS], ensure_ascii=False),
+        )
 
     async def listar_avisos(self):
-        return {"avisos": await self._carregar_avisos()}
+        avisos = await self._carregar_avisos()
+        return {
+            "avisos": avisos,
+            "quantidade": len(avisos),
+            "limite": MAX_AVISOS_ATIVOS,
+        }
 
     async def adicionar_aviso(self, texto):
         texto = (texto or "").strip()
         if not texto:
-            return {"ok": False, "motivo": "aviso_vazio"}
+            return {"ok": False, "motivo": "aviso_vazio", "avisos": await self._carregar_avisos()}
+        if len(texto) > MAX_TAMANHO_AVISO:
+            return {"ok": False, "motivo": "aviso_muito_longo", "avisos": await self._carregar_avisos()}
 
         avisos = await self._carregar_avisos()
         if texto in avisos:
             return {"ok": True, "avisos": avisos, "duplicado": True}
+        if len(avisos) >= MAX_AVISOS_ATIVOS:
+            return {"ok": False, "motivo": "limite_atingido", "avisos": avisos}
 
         avisos.append(texto)
-        avisos = avisos[-MAX_AVISOS_ATIVOS:]
         await self._salvar_avisos(avisos)
         return {"ok": True, "avisos": avisos, "duplicado": False}
 
@@ -66,6 +77,7 @@ class BusState(DurableObject):
 
     async def limpar_avisos(self):
         await self._salvar_avisos([])
+        await self.ctx.storage.delete("aguardando_aviso_personalizado")
         return {"ok": True, "avisos": []}
 
     async def iniciar_aviso_personalizado(self):
@@ -81,8 +93,10 @@ class BusState(DurableObject):
         return {"ativo": bool(ativo)}
 
     async def salvar_aviso_personalizado(self, texto):
-        await self.ctx.storage.delete("aguardando_aviso_personalizado")
-        return await self.adicionar_aviso(texto)
+        resultado = await self.adicionar_aviso(texto)
+        if resultado.get("ok"):
+            await self.ctx.storage.delete("aguardando_aviso_personalizado")
+        return resultado
 
     async def localizacao(self):
         estado = await self._carregar()
