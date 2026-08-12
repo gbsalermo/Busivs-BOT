@@ -10,29 +10,67 @@ Documento técnico para retomar o projeto rapidamente sem perder decisões, prob
 
 O protótipo principal foi concluído e a migração para Cloudflare foi validada em produção.
 
-A partir daqui, não existe mais uma etapa formal de bateria de testes antes de cada avanço. O desenvolvimento passa para **melhoria contínua orientada pelo uso real**:
+A partir daqui, o desenvolvimento passa para **melhoria contínua orientada pelo uso real**:
 
 ```text
-serviço em produção
+problema / melhoria identificada
       ↓
-uso real / observação dos logs
+alpha
       ↓
-problema ou oportunidade identificada
+teste local com bot de teste
       ↓
-correção pequena e objetiva
+validação
       ↓
-deploy
+merge para main
       ↓
-validação em uso
+deploy automático Cloudflare
+      ↓
+observação em produção
 ```
 
-Testes automatizados continuam úteis e devem ser adicionados principalmente quando protegem uma regra importante ou reproduzem um bug real. Eles deixam de ser uma etapa separada do roadmap.
+Testes automatizados continuam importantes quando protegem uma regra crítica ou reproduzem um bug real, mas deixam de ser uma etapa isolada do roadmap.
 
-**Foco imediato:** pequenas melhorias que aumentem eficiência, confiabilidade e clareza sem aumentar desnecessariamente a infraestrutura.
+**Foco imediato:** pequenas melhorias que aumentem eficiência, confiabilidade e clareza antes de ampliar o escopo do produto.
 
 ---
 
-# 2. Princípios que não devem ser quebrados
+# 2. Branches oficiais
+
+O repositório foi reduzido para três branches com papéis claros:
+
+```text
+main
+→ produção atual
+→ conectada ao Cloudflare
+→ qualquer push/merge pode gerar deploy
+
+alpha
+→ desenvolvimento e testes locais
+→ NÃO deve gerar deploy Cloudflare
+→ usa um bot de teste separado
+→ mudanças devem ser validadas aqui antes da produção
+
+local
+→ versão antiga em polling
+→ fallback histórico / referência
+```
+
+Regra operacional:
+
+> **Mudanças normais entram primeiro em `alpha`. `main` só recebe o que já foi validado.**
+
+Na Cloudflare, manter:
+
+```text
+Production branch: main
+Builds for non-production branches: desativado
+```
+
+Isso evita testar código novo diretamente no bot oficial.
+
+---
+
+# 3. Princípios que não devem ser quebrados
 
 1. Não tratar estimativa como confirmação.
 2. Não inferir sentido apenas pelo nome de um ponto.
@@ -44,16 +82,15 @@ Testes automatizados continuam úteis e devem ser adicionados principalmente qua
 8. Viagens do mesmo bloco operacional podem compartilhar contexto.
 9. Preferir correções pequenas, legíveis e fáceis de manter.
 10. Não adicionar infraestrutura sem problema concreto.
-11. Preservar a versão original em polling como referência/fallback.
+11. Preservar a versão local/polling como fallback.
 12. Tokens, secrets e credenciais nunca devem ser versionados.
+13. Não usar `alpha` para deploy em nuvem; ela é laboratório local.
 
 > **Princípio central:** o BUSIVS deve continuar simples, eficaz e de custo zero ou próximo de zero.
 
 ---
 
-# 3. Arquitetura atual — PRODUÇÃO
-
-A arquitetura ativa deixou de ser polling local e passou a ser:
+# 4. Arquitetura atual — PRODUÇÃO
 
 ```text
 Telegram
@@ -71,37 +108,11 @@ Telegram Bot API
 
 O Worker recebe cada Update do Telegram, valida o secret do webhook, interpreta mensagens/callbacks, consulta ou altera o estado compartilhado e responde pela Telegram Bot API.
 
-O endpoint público de saúde é:
+Endpoint de saúde:
 
 ```text
 GET /health
 ```
-
-A versão atual identifica o runtime como `cloudflare-worker`.
-
----
-
-# 4. Organização das versões
-
-Durante a migração foi criada a branch `feat/cloudflare-worker`. Posteriormente a versão Cloudflare foi promovida para `main`.
-
-Para preservar o projeto original foi criada:
-
-```text
-mainOriginal
-```
-
-Estado conceitual:
-
-```text
-main
-→ versão atual Cloudflare / produção
-
-mainOriginal
-→ versão original em polling preservada como fallback/referência
-```
-
-Também existem cópias locais separadas da versão Cloudflare e da versão original.
 
 ---
 
@@ -141,7 +152,7 @@ plausibilidade.py
 → proteção contra deslocamentos impossíveis em tempo muito curto
 
 dados.py
-→ carregamento/representação dos horários, pontos e rota usados pelo Worker
+→ horários, pontos e rota usados pelo Worker
 ```
 
 ---
@@ -161,138 +172,74 @@ Histórico permanente de localização
 → NÃO existe
 ```
 
-O Durable Object é necessário porque Workers são serverless e requisições diferentes não podem depender da memória de uma mesma instância Python.
-
-A classe usada é:
-
-```text
-BusState
-```
-
-Binding:
+O Durable Object existe porque Workers não podem depender de memória compartilhada entre requisições.
 
 ```text
 BUS_STATE → BusState
+storage   → SQLite
 ```
 
-O estado salvo contém apenas informações necessárias para a operação recente, como ponto atual/anterior, horário, resultado da rota e histórico curto.
+O estado contém apenas informações necessárias para a operação recente: ponto atual/anterior, horário, resultado da rota e histórico curto.
 
 ---
 
-# 7. Problema do Durable Object durante o deploy
+# 7. Secrets e deploy
 
-Durante a configuração de produção apareceu o erro:
-
-```text
-Durable Object exports reconciliation failed
-class 'BusState' has a provisioned Durable Object namespace
-but is not declared in exports
-```
-
-Causa: o namespace já havia sido provisionado pela Cloudflare, mas uma configuração/deploy posterior não declarava `BusState` corretamente nos exports.
-
-A configuração foi corrigida mantendo `BusState` declarado como Durable Object com armazenamento SQLite.
-
-**Não remover essa declaração de forma casual.** Uma vez provisionado, a Cloudflare exige reconciliação explícita caso a classe seja removida, renomeada ou transferida.
-
----
-
-# 8. Secrets e variáveis de ambiente
-
-Secrets de produção necessários:
+Secrets de produção:
 
 ```text
 TELEGRAM_BOT_TOKEN
 TELEGRAM_WEBHOOK_SECRET
 ```
 
-Eles não devem estar no GitHub nem em `.env` versionado.
+Eles não ficam no GitHub.
 
-Durante a implantação via integração do repositório ocorreu um problema importante: o deploy reclamava que os secrets obrigatórios não estavam definidos, e a interface de adicionar variável chegou a ser bloqueada pelo erro de reconciliação do Durable Object.
-
-A solução funcional foi cadastrar os secrets diretamente pelo Wrangler:
+A forma que funcionou de modo confiável foi:
 
 ```bash
 npx wrangler secret put TELEGRAM_BOT_TOKEN
 npx wrangler secret put TELEGRAM_WEBHOOK_SECRET
 ```
 
-Após cadastrados corretamente no Worker, novos deploys normais não exigem recadastrar os tokens.
+Depois de cadastrados no Worker, deploys normais não exigem recadastro.
 
-O `.env` pode ser usado apenas no ambiente local e nunca deve ser enviado ao repositório.
-
----
-
-# 9. PyWrangler / Workers Python
-
-Durante a configuração local apareceram problemas com versões antigas do `workers-py`/PyWrangler e com a criação do ambiente Pyodide pelo `uv`.
-
-Exemplos encontrados:
-
-```text
-uv: command not found
-```
-
-Depois da instalação do `uv`, ocorreu erro ao consultar:
-
-```text
-cpython-3.13.2-emscripten-wasm32-musl
-```
-
-O ambiente Cloudflare posteriormente conseguiu executar corretamente o fluxo:
-
-```text
-uv run pywrangler deploy
-→ cria .venv
-→ cria .venv-workers
-→ baixa Pyodide
-→ instala python_modules
-→ passa o deploy para npx wrangler
-```
-
-O deploy validado utilizou `wrangler 4.121.0` e concluiu o upload do Worker com o binding `BUS_STATE`.
-
-Não alterar versões de runtime/dependências sem necessidade concreta, porque essa camada foi uma das partes mais sensíveis da migração.
+O `.env` é apenas local e deve continuar ignorado pelo Git.
 
 ---
 
-# 10. Webhook Telegram
-
-Endpoint:
+# 8. Problemas de infraestrutura já resolvidos
 
 ```text
-POST /telegram/webhook
+uv não instalado
+→ instalação/configuração do uv
+
+falha Pyodide local
+→ ajuste da toolchain e validação pelo ambiente Cloudflare
+
+Worker retornando Hello World
+→ entrada/configuração de deploy corrigida
+
+webhook_secret_invalid
+→ header/secret corrigidos
+
+error code 1101
+→ correções na adaptação Worker
+
+secrets ausentes no deploy
+→ cadastro persistente com wrangler secret put
+
+BusState provisionado mas ausente dos exports
+→ Durable Object reconciliado na configuração
+
+sequência impossível aceita rapidamente
+→ camada de plausibilidade física antes do registro
 ```
 
-O Worker valida:
-
-```text
-X-Telegram-Bot-Api-Secret-Token
-```
-
-contra `TELEGRAM_WEBHOOK_SECRET`.
-
-Durante os testes manuais ocorreu:
-
-```json
-{"ok": false, "error": "webhook_secret_invalid"}
-```
-
-A validação funcionou como esperado: o header estava incorreto/ausente.
-
-Depois, um POST manual com secret válido retornou:
-
-```json
-{"ok": true, "handled": false, "reason": "update_type_not_supported_yet", "stage": "6.2"}
-```
-
-Isso confirmou antes da integração completa que URL pública, endpoint, JSON e autenticação estavam funcionando.
-
-Posteriormente o webhook completo foi conectado aos comandos e callbacks do bot.
+Não remover ou alterar de forma casual a declaração do `BusState` em `exports`, pois o namespace já foi provisionado pela Cloudflare.
 
 ---
 
-# 11. Funcionalidades em produção
+# 9. Funcionalidades em produção
 
 O Circular Principal possui atualmente:
 
@@ -300,7 +247,7 @@ O Circular Principal possui atualmente:
 - horários fixos;
 - próximos horários;
 - listagem por manhã, almoço, tarde e noite;
-- previsão aproximada de chegada ao Portão 1;
+- previsão de chegada ao Portão 1;
 - identificação de pico;
 - rota completa;
 - pontos opcionais;
@@ -315,19 +262,19 @@ O Circular Principal possui atualmente:
 - proteção contra registro fora de circulação;
 - proteção contra duplicidade imediata;
 - histórico operacional curto;
-- recuperação de confirmações incompatíveis quando a sequência posterior permite;
-- ciclo de vida por blocos operacionais;
-- expiração de estado de dia anterior;
+- recuperação de confirmações incompatíveis quando possível;
+- blocos operacionais;
+- expiração de estado antigo;
 - estimativa experimental de possível atraso;
-- proteção de plausibilidade física entre confirmações.
+- proteção contra deslocamentos fisicamente improváveis.
 
 Micro-ônibus ainda não foi implementado.
 
-Autenticação institucional continua adiada até existir uma necessidade demonstrada.
+Autenticação institucional continua adiada até existir necessidade demonstrada.
 
 ---
 
-# 12. Rota principal validada
+# 10. Rota principal
 
 ```text
 RU / Residências
@@ -359,15 +306,11 @@ Torre / COTEC (opcional)
 RU / Residências
 ```
 
-A Biblioteca aparece duas vezes. A função de análise trabalha com ocorrências/índices da rota em vez de assumir um sentido pelo ID do ponto.
+A Biblioteca aparece duas vezes. A análise trabalha com ocorrências/índices, não apenas com ID do ponto.
 
 ---
 
-# 13. Blocos operacionais
-
-O estado não é limpo simplesmente ao terminar uma saída prevista, porque atrasos podem fazer uma viagem atravessar o horário teórico.
-
-Regra geral:
+# 11. Blocos operacionais
 
 ```text
 intervalo entre saídas <= 60 min
@@ -380,29 +323,17 @@ intervalo entre saídas > 60 min
 
 Também há expiração quando o registro pertence a outro dia.
 
-A lógica evita que o horário oficial invalide automaticamente uma confirmação real recente.
+Uma confirmação real recente não deve ser invalidada automaticamente porque o horário teórico mudou.
 
 ---
 
-# 14. Recuperação de registros colaborativos
+# 12. Recuperação e plausibilidade das confirmações
 
-Uma decisão importante foi permitir recuperação natural de uma confirmação isolada incorreta.
+Uma confirmação isolada incorreta não deve destruir a sessão. O histórico curto permite reconstruir movimento quando uma sequência posterior coerente aparece.
 
-Exemplo conceitual:
+Porém, essa flexibilidade não pode aceitar deslocamentos impossíveis.
 
-```text
-A → registro errado → B
-```
-
-Se `B` for coerente com uma confirmação anterior do histórico, o sistema pode reconstruir o movimento sem deixar um clique errado destruir toda a sessão.
-
-Essa flexibilidade gerou posteriormente um novo problema: o algoritmo podia aceitar sequências fisicamente impossíveis porque encontrava alguma combinação válida na rota.
-
----
-
-# 15. Bug encontrado em produção — saltos rápidos impossíveis
-
-Cenário observado:
+Bug real já corrigido:
 
 ```text
 Biblioteca
@@ -412,82 +343,38 @@ Pavilhão I
 RU
 ```
 
-Os registros eram aceitos porque a análise de rota encontrava ocorrências posteriores compatíveis e a recuperação histórica podia ignorar uma confirmação incompatível recente.
-
-O problema não era apenas a ordem da rota: faltava considerar o **tempo necessário para o deslocamento**.
-
-Solução aplicada: criação de `plausibilidade.py` e validação antes de alterar o estado.
-
-Princípio atual:
+A camada `plausibilidade.py` passou a validar distância lógica + tempo antes de alterar o estado.
 
 ```text
-pontos próximos / poucos trechos
+pontos próximos
 → tolerância alta
 
-salto por vários trechos em tempo extremamente curto
+salto de vários trechos rápido demais
 → rejeitado
 
 salto longo após tempo plausível
 → pode ser aceito
 ```
 
-A proteção foi propositalmente conservadora para não transformar horário de clique em GPS. O estudante pode informar a passagem alguns segundos depois do ônibus passar.
-
-Quando bloqueado, o estado anterior é preservado e o usuário recebe mensagem explicando que a confirmação parece incompatível com a última passagem.
-
-Testes específicos foram adicionados para esse bug.
+A proteção é conservadora porque o momento do clique não é GPS.
 
 ---
 
-# 16. Observabilidade
+# 13. Observabilidade
 
-Os logs/Observability do Cloudflare Worker podem ser habilitados no painel. A ativação pode solicitar um novo deploy para aplicar a configuração.
+Cloudflare Observability/Logs pode ser usado para acompanhar requisições e erros.
 
-Depois disso, requisições do webhook e execuções do Worker podem ser acompanhadas pelo painel da Cloudflare.
-
-Para acompanhamento ao vivo pelo terminal também pode ser usado:
+Terminal em tempo real:
 
 ```bash
 npx wrangler tail --name busivs-bot
 ```
 
-Logs agora são parte importante da fase de melhoria contínua: devem ser usados para investigar comportamento real antes de adicionar complexidade.
+Na fase atual, logs devem ajudar a decidir o que corrigir; não devemos adicionar complexidade antes de observar um problema real.
 
 ---
 
-# 17. Problemas já encontrados e resolvidos
-
-```text
-uv não instalado
-→ instalação/configuração do uv
-
-falha Pyodide local
-→ atualização/ajuste da toolchain e validação pelo ambiente Cloudflare
-
-Worker inicialmente retornando apenas Hello World
-→ entrypoint/configuração corrigidos
-
-webhook_secret_invalid
-→ header/secret corrigidos e validação confirmada
-
-error code 1101
-→ investigação e correções da adaptação Worker
-
-secrets ausentes no deploy
-→ cadastro persistente com wrangler secret put
-
-BusState provisionado mas ausente dos exports
-→ Durable Object reconciliado na configuração
-
-sequência de pontos impossível aceita rapidamente
-→ camada de plausibilidade física antes do registro
-```
-
-Esses problemas são importantes porque representam pontos frágeis que podem reaparecer após mudanças de infraestrutura.
-
----
-
-# 18. Estado das etapas
+# 14. Estado das etapas
 
 ```text
 Etapa 1   Base do bot                                  ✅
@@ -506,90 +393,203 @@ Etapa 6   Cloudflare / hospedagem                     ✅ PRODUÇÃO
   6.7 Deploy / campo                                  ✅
 ```
 
-A antiga etapa formal de testes de equivalência não será mantida como bloqueio do roadmap. A equivalência essencial foi validada durante a migração e, daqui em diante, erros serão tratados conforme aparecerem em produção.
-
 ---
 
-# 19. Fase atual — melhorias pequenas de produção
+# 15. Próxima frente — Avisos e operação remota
 
-Antes de ampliar o escopo do BUSIVS, priorizar melhorias incrementais no serviço existente.
+A próxima melhoria de produto será **Avisos**, mas ela deve ser pensada junto com a operação remota do serviço.
 
-Boas candidatas:
+## 15.1 Avisos
+
+Precisamos definir:
 
 ```text
-1. melhorar mensagens e feedback de ações
-2. reduzir cliques desnecessários
-3. melhorar tratamento de confirmações conflitantes
-4. ajustar tempos/tolerâncias com observações reais
-5. melhorar logs úteis para diagnóstico
-6. evitar chamadas desnecessárias à Telegram Bot API
-7. revisar expiração do estado conforme situações reais aparecerem
-8. melhorar tratamento de erros sem derrubar o webhook
-9. observar consumo de Worker/Durable Object
-10. manter respostas rápidas no Telegram
+- quem pode criar/editar/remover aviso;
+- onde o aviso fica armazenado;
+- validade/expiração automática;
+- prioridade/tipo do aviso;
+- como o usuário consulta pelo botão 📢 Avisos;
+- se haverá aviso destacado em outras respostas;
+- como administrar isso sem precisar estar no computador.
 ```
 
-Não implementar todas antecipadamente. Escolher uma melhoria por vez com base no impacto observado.
+Pergunta operacional central:
 
----
+> **Como Gabriel envia um aviso quando estiver longe do computador?**
 
-# 20. Pós-protótipo / futuras funcionalidades
-
-Depois de consolidar a versão atual:
+Possibilidades a avaliar na implementação:
 
 ```text
-Avisos, comunicados e ocorrências
-Principal + Micro
-NFC nos pontos
-Desvios dos portões
-Modo de férias
-Refinamento de estimativas com dados reais
-Proteções adicionais contra abuso/informação incorreta
-Autenticação institucional — somente se necessária
-Avisos e alertas automáticos
-Métricas/estatísticas — somente se gerarem valor real
+A) comandos administrativos pelo próprio Telegram;
+B) painel/admin HTTP protegido;
+C) edição de arquivo + deploy — pouco prática para urgências;
+D) ferramenta externa apenas se houver necessidade real.
 ```
 
-Prioridade continua sendo fazer o **Principal atual funcionar muito bem** antes de aumentar o escopo.
+Preferência conceitual inicial: **administração pelo próprio Telegram**, com autorização por Telegram ID, porque permite agir pelo celular e evita criar um painel separado apenas para isso.
+
+Ainda precisa ser desenhado e validado antes de implementar.
+
+## 15.2 Mudança operacional de rota por fechamento de portão
+
+Fechamento de Portão 1 ou Portão 2 **não é apenas um aviso**.
+
+Pode alterar:
+
+```text
+- sequência real dos pontos;
+- sentido observado;
+- tempo da volta;
+- previsão do Portão 1;
+- duração estimada de ida/retorno;
+- plausibilidade entre confirmações;
+- mensagens de localização.
+```
+
+Portanto precisamos modelar um **estado operacional de rota**, por exemplo:
+
+```text
+rota_normal
+portao_1_fechado
+portao_2_fechado
+outro_desvio
+```
+
+Cada estado deverá conseguir alterar simultaneamente:
+
+```text
+rota ativa
+avisos exibidos
+estimativas de tempo
+```
+
+Não resolver fechamento de portão somente com texto de aviso.
+
+## 15.3 Administração pelo celular
+
+Além dos avisos, avaliar um pequeno conjunto de comandos restritos ao administrador:
+
+```text
+/admin
+/aviso
+/rota_operacional
+/status
+/reiniciar_estado
+```
+
+Esses comandos devem ser autenticados por Telegram ID e nunca aparecer para usuários normais.
+
+O objetivo é permitir administrar o serviço remotamente sem depender do notebook.
+
+## 15.4 Reinício / recuperação do serviço
+
+Precisamos documentar e decidir o procedimento oficial para situações diferentes.
+
+Questões abertas:
+
+```text
+- quando realmente é necessário "reiniciar" um Worker serverless?
+- reiniciar significa novo deploy, rollback ou limpar estado?
+- como fazer isso pelo painel Cloudflare?
+- quando usar Git/main para gerar novo deploy?
+- como fazer rollback rápido para uma versão anterior?
+- como limpar somente o Durable Object sem redeployar código?
+- qual procedimento usar se o Telegram estiver ativo mas o estado estiver corrompido?
+```
+
+A decisão deverá separar três ações diferentes:
+
+```text
+REDEPLOY
+→ republicar código
+
+ROLLBACK
+→ voltar versão do Worker
+
+RESET DE ESTADO
+→ limpar BusState sem mexer no código
+```
+
+Não tratar as três como se fossem "reiniciar o bot".
 
 ---
 
-# 21. O que NÃO fazer agora
+# 16. Fase atual — melhorias pequenas de produção
 
-Evitar neste momento:
+Antes de ampliar demais o escopo, priorizar:
 
-- criar frontend web apenas por estética;
-- adicionar PostgreSQL/MySQL para substituir o estado simples;
-- criar cadastro de usuário sem necessidade;
-- armazenar histórico permanente de localização;
-- adicionar autenticação institucional preventivamente;
+```text
+1. Avisos e administração remota
+2. melhor feedback das ações
+3. menos cliques desnecessários
+4. tratamento de confirmações conflitantes
+5. ajuste de tempos/tolerâncias com uso real
+6. logs úteis para diagnóstico
+7. redução de chamadas desnecessárias à Telegram Bot API
+8. revisão da expiração de estado
+9. tratamento de erros sem derrubar webhook
+10. observação do consumo Worker/Durable Object
+11. manutenção de respostas rápidas
+```
+
+Escolher uma melhoria por vez.
+
+---
+
+# 17. Pós-protótipo / futuras funcionalidades
+
+Itens já registrados para depois da consolidação da versão atual:
+
+```text
+1. Avisos, comunicados e ocorrências
+2. Principal + Micro
+3. NFC nos pontos
+4. Desvios / fechamento dos portões
+5. Modo de férias
+6. Refinamento das estimativas com dados reais
+7. Proteções adicionais contra abuso ou informação incorreta
+8. Autenticação institucional — somente se necessária
+9. Avisos e alertas automáticos
+10. Métricas e estatísticas — somente se gerarem valor real
+```
+
+Observação: **Avisos** e **desvios de portões** deixam de ser apenas ideias futuras e entram agora na frente ativa de desenho do produto.
+
+---
+
+# 18. O que NÃO fazer agora
+
+Evitar:
+
+- frontend web apenas por estética;
+- PostgreSQL/MySQL sem necessidade;
+- cadastro de usuário preventivo;
+- histórico permanente de localização;
+- autenticação institucional sem demanda real;
 - reescrever o projeto em outro framework;
 - transformar estimativas em afirmações absolutas;
-- tentar resolver antecipadamente todos os possíveis abusos;
+- resolver antecipadamente todos os abusos possíveis;
 - expandir para Micro antes de estabilizar o Principal.
 
 ---
 
-# 22. Procedimento de mudança daqui para frente
-
-Para cada problema encontrado:
+# 19. Procedimento de mudança
 
 ```text
-1. reproduzir o comportamento
-2. identificar qual regra realmente falhou
-3. corrigir no menor ponto possível
-4. adicionar teste se o bug representar uma regra importante
-5. fazer deploy
-6. validar no Telegram
-7. observar logs/comportamento
-8. registrar no CONTINUIDADE se alterar decisão relevante
+1. identificar problema/melhoria
+2. atualizar alpha a partir da main se necessário
+3. implementar na alpha
+4. testar localmente com bot de teste
+5. corrigir até validar
+6. merge para main
+7. Cloudflare publica produção
+8. observar logs/comportamento
+9. registrar decisões relevantes no CONTINUIDADE
 ```
-
-O objetivo não é perseguir arquitetura perfeita. É manter um serviço simples que resolva bem o problema dos estudantes.
 
 ---
 
-# 23. Resumo para retomada rápida
+# 20. Resumo para retomada rápida
 
 ```text
 PRODUÇÃO
@@ -597,22 +597,28 @@ main
 Cloudflare Worker Python
 Telegram Webhook
 Durable Object BusState / SQLite
-horários + rota + colaboração
-secrets persistidos na Cloudflare
-logs disponíveis para observação
+
+DESENVOLVIMENTO
+alpha
+execução/testes locais
+bot Telegram separado de teste
+sem deploy Cloudflare
 
 FALLBACK
-mainOriginal
-versão Python em polling
+local
+versão antiga em polling
 
 FASE ATUAL
-melhorias pequenas e correções orientadas pelo uso real
+avisos + operação remota + pequenas melhorias
+
+QUESTÕES PRIORITÁRIAS
+como enviar avisos pelo celular
+como alterar rota quando portões fecharem
+como ajustar estimativas durante desvios
+como fazer redeploy/rollback/reset de estado corretamente
 
 PRIORIDADE
 confiabilidade + eficiência + simplicidade
-
-PRÓXIMO PASSO
-observar o serviço em produção e atacar uma melhoria pequena por vez
 ```
 
-> **O BUSIVS deixou de ser apenas um protótipo local. A versão principal está online; agora o trabalho é fazê-la funcionar cada vez melhor antes de aumentar seu escopo.**
+> **O BUSIVS está em produção. A próxima fase não é aumentar o projeto indiscriminadamente, e sim torná-lo fácil de operar e confiável no dia a dia.**
