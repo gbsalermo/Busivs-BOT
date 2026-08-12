@@ -14,7 +14,7 @@ from dados import PONTOS, ROTULOS_PONTOS
 from regras import agora_local, estado_vazio, listar_horarios_periodo, montar_localizacao, montar_resumo_horarios, montar_rota_atual, registrar_passagem
 from validacao_rota import validar_deslocamento
 from estado_local import EstadoLocal
-from micro import resumo_micro
+from micro import proxima_volta_micro, resumo_micro, volta_micro_atual
 load_dotenv(BASE_DIR / ".env")
 TELEGRAM_BOT_TOKEN=os.getenv("TELEGRAM_BOT_TOKEN")
 ADMIN_TELEGRAM_ID=(os.getenv("ADMIN_TELEGRAM_ID") or "").strip()
@@ -51,6 +51,13 @@ def texto_tempo_micro():
  return f"🕐 Operação confirmada há {minutos} min."
 def resumo_micro_status():
  status=texto_tempo_micro(); base=resumo_micro(); return base+("\n"+status if status else "")
+def montar_localizacao_micro(estado):
+ if estado.get("horario") and estado.get("ponto_atual"): return montar_localizacao(estado)
+ atual=volta_micro_atual(); proxima=proxima_volta_micro(); linhas=["⚪ Sem confirmação de ponto recente."]
+ if atual: linhas += ["", "🔵 <b>Referência atual do micro</b>", f"🕐 <b>{atual['inicio'].strftime('%H:%M')}</b> — {atual['origem']}"]
+ if proxima: linhas += ["", "🟢 <b>Próxima referência</b>", f"🕐 <b>{proxima['inicio'].strftime('%H:%M')}</b> — {proxima['origem']}"]
+ if not atual and not proxima: linhas += ["", "ℹ️ Não há referência de horário cadastrada para o micro neste momento."]
+ return estado,"\n".join(linhas)
 def teclado_menu(uid=None):
  rotulo_micro="🚐 Micro em operação ✅" if ESTADO.micro_esta_ativo() else "🚐 Confirmar que micro está rodando"
  l=[[InlineKeyboardButton("🚌 Onde está o ônibus?",callback_data="onde")],[InlineKeyboardButton("📍 Informar ponto atual",callback_data="local")],[InlineKeyboardButton("⏰ Próximos horários",callback_data="horarios")],[InlineKeyboardButton("📋 Listar horários",callback_data="listar_horarios")],[InlineKeyboardButton(rotulo_micro,callback_data="micro_confirmar")]]
@@ -95,7 +102,7 @@ async def callback(u:Update,c:ContextTypes.DEFAULT_TYPE):
  if a=="onde":
   e=ESTADO.obter_estado(estado_vazio); e,t=montar_localizacao(e); ESTADO.salvar_estado(e); t="🚌 <b>CIRCULAR PRINCIPAL</b>\n\n"+t
   if ESTADO.micro_esta_ativo():
-   em=ESTADO.obter_estado(estado_vazio,"micro"); em,tm=montar_localizacao(em); ESTADO.salvar_estado(em,"micro"); status=texto_tempo_micro(); t+="\n\n────────────\n\n🚐 <b>MICRO — REFORÇO</b>"+("\n"+status if status else "")+"\n\n"+tm
+   em=ESTADO.obter_estado(estado_vazio,"micro"); em,tm=montar_localizacao_micro(em); ESTADO.salvar_estado(em,"micro"); status=texto_tempo_micro(); t+="\n\n────────────\n\n🚐 <b>MICRO — REFORÇO</b>"+("\n"+status if status else "")+"\n\n"+tm
   await m.reply_text(t,parse_mode="HTML",reply_markup=teclado_voltar()); return
  if a=="local":
   if ESTADO.micro_esta_ativo(): await m.reply_text("📍 Qual veículo você viu?",reply_markup=teclado_veiculo())
