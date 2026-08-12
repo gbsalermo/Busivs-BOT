@@ -88,12 +88,20 @@ class Default(WorkerEntrypoint):
             resultado=await self._estado().registrar(ponto_id,telegram_id)
             if not resultado.get("aceito"):
                 motivo=resultado.get("motivo")
-                if motivo=="duplicado": texto="Obrigado pela informação 😊"
+                if motivo=="duplicado":
+                    texto="Obrigado pela informação 😊"
                 elif motivo=="fora_circulacao":
                     texto="🚫 Não há percurso ativo no momento.\n\n🚌 Pelo horário, o ônibus provavelmente está em %s."%resultado.get("origem","origem")
                     prox=resultado.get("proxima")
                     if prox: texto += f"\n⏰ Próxima saída prevista:\n     🕐 {prox['hora']} — {prox['origem']}"
-                else: texto="⚠️ Não consegui reconhecer esse ponto."
+                elif motivo=="deslocamento_improvavel":
+                    texto=(
+                        "⚠️ Essa confirmação parece incompatível com a última passagem registrada.\n\n"
+                        "📍 O ônibus não teria tempo suficiente para chegar a esse ponto agora.\n"
+                        "ℹ️ Aguarde um pouco ou confirme novamente quando ele realmente passar."
+                    )
+                else:
+                    texto="⚠️ Não consegui reconhecer esse ponto."
             else:
                 texto="Valeu! Registramos o ponto 😊"
             return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN,chat_id,texto,reply_markup=teclado_voltar())
