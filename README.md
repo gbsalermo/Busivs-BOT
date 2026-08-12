@@ -1,56 +1,168 @@
 # BUSIVS BOT 🚌
 
-Bot comunitário desenvolvido para auxiliar estudantes da **UFRB — Campus Cruz das Almas** a consultar horários do circular e acompanhar sua situação de forma simples e colaborativa pelo Telegram.
+Bot comunitário para acompanhar o **Circular da UFRB — Campus Cruz das Almas** pelo Telegram, combinando horários oficiais, regras da rota e confirmações colaborativas dos estudantes.
 
-> **Status:** versão funcional hospedada em produção com Cloudflare Workers e Telegram Webhook.
+> **Status:** versão funcional em produção com Cloudflare Workers, Telegram Webhook e Durable Object.
 
-## Sobre o projeto
+## O problema
 
-O BUSIVS BOT nasceu de um problema cotidiano: quem depende do circular nem sempre sabe se o ônibus já passou, está atrasado, está retornando ou quando acontecerá a próxima saída.
+Quem depende do circular muitas vezes fica sem saber se o ônibus:
 
-Em vez de exigir GPS ou um aplicativo próprio, o sistema combina **horários oficiais**, **regras da rota** e **confirmações colaborativas dos estudantes** para reduzir essa incerteza.
+- já passou;
+- está atrasado;
+- está retornando;
+- ainda está na origem;
+- está perto de determinado ponto;
+- terá reforço do micro-ônibus naquele período.
 
-O projeto foi desenvolvido por **Gabriel Salermo**, aluno do **Bacharelado Interdisciplinar em Ciências Exatas e Tecnológicas (BCET) / Engenharia da Computação da UFRB**.
+O BUSIVS foi criado para reduzir essa incerteza sem exigir GPS, aplicativo próprio ou infraestrutura cara.
 
-## O que o sistema faz
+## A solução
 
-Pelo Telegram, o usuário pode:
+O bot usa três fontes principais de contexto:
 
-- consultar os próximos horários do circular;
-- listar horários por período do dia;
-- consultar a rota principal;
-- informar em qual ponto o ônibus acabou de passar;
-- consultar a última localização confirmada;
-- obter estimativa de sentido e próximo ponto;
-- identificar situações de ida, retorno, espera e pré-saída;
-- visualizar previsões aproximadas de chegada ao Portão 1;
-- receber indicação experimental de possível atraso;
-- colaborar com outros estudantes sem instalar um aplicativo adicional.
+```text
+horários oficiais
++ regras da rota
++ confirmações colaborativas
+```
+
+A partir disso, consegue informar a última passagem registrada, estimar sentido e próximo ponto, mostrar próximas saídas e sinalizar situações operacionais importantes.
 
 O sistema diferencia explicitamente **confirmação real** de **estimativa baseada no horário**.
 
-## Interface
+## Recursos atuais
 
-O Telegram é a interface do BUSIVS.
+Pelo Telegram, o usuário pode:
 
-![Interface inicial do BUSIVS BOT](docs/images/interface-inicial.png)
+- consultar onde o Circular Principal foi visto por último;
+- informar em qual ponto o veículo acabou de passar;
+- consultar próximas voltas;
+- listar horários por período;
+- consultar a rota;
+- acompanhar o Micro-ônibus de reforço quando estiver operando;
+- informar pontos do Principal e do Micro separadamente;
+- visualizar avisos operacionais ativos;
+- consultar ajuda e instruções de uso.
+
+O sistema também possui:
+
+- estados independentes para Principal e Micro;
+- tratamento contextual da Biblioteca, que aparece duas vezes na rota;
+- proteção contra confirmações duplicadas;
+- proteção contra saltos fisicamente improváveis;
+- expiração de estados antigos conforme o ciclo operacional;
+- pré-saída e espera na origem;
+- avisos temporários por bloco operacional;
+- painel administrativo restrito ao administrador.
+
+## Interface do bot
+
+Menu principal:
 
 ```text
 🚌 Onde está o ônibus?
-📍 Informar passagem
+📍 Informar ponto atual
 ⏰ Próximos horários
 📋 Listar horários
-🗺️ Rota atual
+🚐 Confirmar que micro está rodando
+❓ Ajuda
+```
+
+Quando o micro é confirmado:
+
+```text
+🚐 Micro em operação ✅
+```
+
+O administrador também visualiza:
+
+```text
 📢 Avisos
 ```
 
 ## Localização colaborativa
 
-Quando um estudante vê o ônibus passar, pode selecionar o ponto correspondente. Essa confirmação alimenta um estado operacional compartilhado e temporário.
+Quando um estudante vê o ônibus passar, seleciona o ponto correspondente.
 
-A partir da sequência de pontos, o BUSIVS consegue estimar o movimento do ônibus, o sentido e o próximo ponto esperado. A lógica também considera pontos que aparecem mais de uma vez na rota, como a Biblioteca, e permite pontos opcionais.
+Essa informação alimenta um estado operacional compartilhado e temporário. A partir da sequência de pontos, o BUSIVS consegue estimar:
 
-Para reduzir informações incorretas, o serviço possui proteções contra registros duplicados, passagens fora do período de circulação e deslocamentos fisicamente improváveis em intervalos muito curtos. O histórico é curto e operacional: o objetivo não é rastrear usuários nem manter um histórico permanente de localização.
+- sentido do veículo;
+- próximo ponto esperado;
+- ida ou retorno;
+- contexto da volta atual.
+
+O projeto não foi desenhado para rastrear usuários nem manter histórico permanente de localização.
+
+## Circular Principal
+
+O Principal continua sendo o veículo de referência do sistema.
+
+Funcionalidades implementadas incluem:
+
+- horários oficiais;
+- próximas voltas;
+- listagem por manhã, almoço, tarde e noite;
+- rota completa;
+- localização colaborativa;
+- sentido e próximo ponto;
+- espera na origem;
+- pré-saída da Garagem;
+- tolerância para atrasos reais;
+- contexto entre viagens próximas;
+- proteção de plausibilidade temporal.
+
+## Micro-ônibus de reforço 🚐
+
+O micro é tratado como **reforço**, não como substituto do Circular Principal.
+
+Ele pode ou não operar em determinado dia. Por isso, qualquer usuário pode confirmar que viu o micro rodando.
+
+Depois da confirmação:
+
+- o botão muda para `🚐 Micro em operação ✅`;
+- o estado do micro passa a ser acompanhado separadamente;
+- o usuário escolhe se viu o Principal ou o Micro ao informar um ponto;
+- `Onde está?` mostra os dois veículos;
+- `Próximos horários` inclui as referências do micro.
+
+Horários oficiais cadastrados:
+
+```text
+MANHÃ
+07:25 — Garagem
+07:40 — RU / Residências
+07:55 — RU / Residências
+
+MEIO-DIA
+11:30 — Garagem
+11:55 — RU / Residências
+12:20 — RU / Residências
+```
+
+A última volta do meio-dia termina às **12:45**, com carência operacional até **13:00**.
+
+Quando ativado durante a escala oficial, o estado do micro expira automaticamente às 13:00. Fora dessa faixa, uma operação extraordinária pode permanecer ativa até desativação administrativa.
+
+## Avisos operacionais 📢
+
+O administrador pode publicar avisos como:
+
+- Portão 1 fechado;
+- Portão 2 fechado;
+- circular operando com atraso;
+- circular temporariamente fora de operação;
+- quebra durante o trajeto;
+- tempo chuvoso;
+- superlotação;
+- micro está rodando;
+- rota alterada;
+- horários especiais;
+- aviso personalizado.
+
+Avisos ativos aparecem automaticamente para os usuários.
+
+O aviso `🚐 Micro está rodando!` é apenas informativo e não altera o estado do micro.
 
 ## Rota principal cadastrada
 
@@ -84,14 +196,16 @@ Torre / COTEC (opcional)
 RU / Residências
 ```
 
-## Arquitetura em produção
+Como a Biblioteca aparece duas vezes, o sistema usa contexto temporal e sequência da rota para interpretar corretamente o sentido.
+
+## Arquitetura
 
 ```text
 Estudante
    ↓
 Telegram
    ↓ webhook HTTPS
-Cloudflare Worker (Python)
+Cloudflare Worker — Python
    ↓
 Regras do BUSIVS
    ↕
@@ -100,77 +214,94 @@ Durable Object / SQLite
 Telegram Bot API
 ```
 
-A hospedagem foi desenhada para permanecer **gratuita ou próxima de custo zero**. O Cloudflare Worker recebe os updates do Telegram por webhook, enquanto um Durable Object mantém apenas o estado compartilhado necessário para acompanhar a volta atual.
+A arquitetura foi mantida propositalmente pequena para permanecer **gratuita ou próxima de custo zero**.
 
-A versão original em polling foi preservada como referência e fallback do projeto.
+Não há:
+
+- frontend web separado;
+- banco relacional tradicional;
+- GPS próprio;
+- cadastro permanente de usuários.
 
 ## Tecnologias
 
 - Python
 - Cloudflare Workers para Python
 - Wrangler / PyWrangler
-- Durable Objects com armazenamento SQLite
-- Telegram Bot API e Webhooks
-- JSON para horários, pontos e definição da rota
+- Durable Objects
+- SQLite no Durable Object
+- Telegram Bot API
+- Telegram Webhooks
+- python-telegram-bot na branch de testes locais
 - Git e GitHub
 
-Secrets como token do bot e segredo do webhook são mantidos no ambiente da Cloudflare e não versionados no repositório.
+## Organização das branches
 
-## Decisões de projeto
+```text
+main
+→ produção Cloudflare
 
-O BUSIVS foi mantido propositalmente pequeno. Não há banco relacional tradicional, frontend separado ou GPS próprio. Informações permanentes da operação ficam em estruturas simples; o estado da localização é temporário e compartilhado pelo Durable Object.
+alpha
+→ testes locais por polling
 
-Horários são referência, não prova da posição real. Uma confirmação colaborativa tem prioridade quando válida, mas o sistema aplica regras de coerência para evitar que uma sequência impossível distorça a localização mostrada aos demais estudantes.
+local
+→ versão original preservada como fallback/referência
+```
+
+O desenvolvimento funcional é validado primeiro na `alpha` antes de ser adaptado para `main`.
 
 ## Estado atual
 
 ```text
-Bot e interface Telegram                    ✅
-Horários do Circular Principal              ✅
-Rota / sentido / próximo ponto              ✅
-Localização colaborativa                    ✅
-Ciclo operacional e expiração de estado     ✅
-Proteções de coerência das confirmações      ✅
-Cloudflare Worker                            ✅ produção
-Webhook Telegram                             ✅ produção
-Durable Object                               ✅ produção
-Secrets de produção                         ✅ configurados
-Observabilidade / logs                       ✅ habilitável na Cloudflare
+Bot Telegram                            ✅
+Circular Principal                     ✅
+Micro-ônibus de reforço                ✅
+Localização colaborativa               ✅
+Próximos horários                      ✅
+Rota e sentido                         ✅
+Avisos operacionais                    ✅
+Painel administrativo                  ✅
+Proteções de coerência                 ✅
+Cloudflare Worker                      ✅ produção
+Telegram Webhook                       ✅ produção
+Durable Object                         ✅ produção
+Execução local por polling             ✅
 ```
 
-O projeto entra agora em uma fase de **melhoria contínua do serviço em produção**: problemas observados no uso real serão corrigidos incrementalmente, priorizando eficiência, confiabilidade e simplicidade.
+A fase funcional principal está fechada. O projeto entra agora em **melhoria contínua orientada pelo uso real**.
 
-## Futuras melhorias
+## Próximas melhorias possíveis
 
-Após a consolidação do serviço atual, o BUSIVS pode evoluir com:
+Sem aumentar complexidade sem necessidade, o BUSIVS pode evoluir com:
 
-- avisos, comunicados e ocorrências operacionais;
-- suporte ao Micro-ônibus além do Circular Principal;
-- tags NFC nos pontos para facilitar confirmações;
-- tratamento de desvios e alterações de acesso aos portões;
-- modo específico para férias e períodos sem aula;
-- refinamento das estimativas com dados obtidos durante o uso real;
-- mecanismos adicionais contra informações incorretas ou abuso;
-- avisos e alertas automáticos para situações relevantes;
-- autenticação institucional, caso o uso real demonstre necessidade;
-- métricas e estatísticas operacionais, caso passem a gerar valor para o serviço.
+- proteção adicional contra spam e trotes;
+- rate limit temporário por usuário/ponto;
+- consolidação de muitas confirmações idênticas;
+- tratamento avançado de confirmações conflitantes;
+- tags NFC nos pontos;
+- modo férias e horários especiais mais estruturado;
+- refinamento de estimativas com dados reais;
+- autenticação institucional, caso passe a ser necessária;
+- métricas e estatísticas, caso gerem valor real para o serviço.
 
-Essas melhorias fazem parte do **pós-protótipo** e não são requisito para considerar a versão atual funcional.
-
-## Documentação técnica
+## Documentação
 
 - [Continuidade e estado atual](CONTINUIDADE.md)
 - [Fluxo do Telegram](docs/FLUXO_TELEGRAM.md)
-- [Roadmap até Beta](docs/ROADMAP_BETA.md)
+- [Roadmap](docs/ROADMAP_BETA.md)
 - [Arquitetura](docs/ARQUITETURA.md)
+- [Plano de avisos](docs/PLANO_AVISOS.md)
+- [Segurança pós-protótipo](docs/POS_PROTOTIPO_SEGURANCA.md)
 
 ## Autor
 
 **Gabriel Salermo**  
 Aluno de **BCET / Engenharia da Computação — UFRB**
 
+Projeto desenvolvido a partir de uma necessidade real da comunidade acadêmica do Campus Cruz das Almas.
+
 ---
 
 ### BUSIVS BOT
 
-> **Colaboração e informação para diminuir a incerteza de quem está esperando o circular.**
+> **Informação colaborativa para reduzir a incerteza de quem está esperando o circular.**
