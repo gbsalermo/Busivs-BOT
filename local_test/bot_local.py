@@ -1,5 +1,6 @@
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -40,6 +41,16 @@ def limitar_resumo_principal(texto, quantidade=2):
  rodape=next((i for i in range(inicio,len(linhas)) if linhas[i].startswith("⚠️ <b>Horários de pico</b>") or linhas[i].startswith("ℹ️ Horários do Portão 1")),None)
  if rodape is None:return "\n".join(linhas[:inicio]).rstrip()
  return "\n".join(linhas[:inicio]+linhas[rodape:]).strip()
+def texto_tempo_micro():
+ ativado_em=ESTADO.dados.get("micro_ativado_em")
+ if not ativado_em:return ""
+ try: inicio=datetime.fromisoformat(ativado_em); minutos=max(0,int((agora_local()-inicio).total_seconds()//60))
+ except Exception:return ""
+ if minutos<1:return "🕐 Operação confirmada agora."
+ if minutos==1:return "🕐 Operação confirmada há 1 min."
+ return f"🕐 Operação confirmada há {minutos} min."
+def resumo_micro_status():
+ status=texto_tempo_micro(); base=resumo_micro(); return base+("\n"+status if status else "")
 def teclado_menu(uid=None):
  rotulo_micro="🚐 Micro em operação ✅" if ESTADO.micro_esta_ativo() else "🚐 Confirmar que micro está rodando"
  l=[[InlineKeyboardButton("🚌 Onde está o ônibus?",callback_data="onde")],[InlineKeyboardButton("📍 Informar ponto atual",callback_data="local")],[InlineKeyboardButton("⏰ Próximos horários",callback_data="horarios")],[InlineKeyboardButton("📋 Listar horários",callback_data="listar_horarios")],[InlineKeyboardButton(rotulo_micro,callback_data="micro_confirmar")]]
@@ -77,7 +88,7 @@ async def callback(u:Update,c:ContextTypes.DEFAULT_TYPE):
  if a=="rota": await m.reply_text(montar_rota_atual(),reply_markup=teclado_ajuda()); return
  if a=="micro_confirmar": await m.reply_text("🚐 Você viu o micro?",reply_markup=teclado_confirmar_micro()); return
  if a=="micro_confirmar_sim":
-  r=ESTADO.ativar_micro(); t="🚐 Obrigado pela informação! O micro foi marcado como em operação." if not r.get("ja_ativo") else "🚐 O micro já estava marcado como em operação. Obrigado por confirmar!"; await m.reply_text(t+"\n\n"+resumo_micro(),parse_mode="HTML",reply_markup=teclado_voltar()); return
+  r=ESTADO.ativar_micro(); t="🚐 Obrigado pela informação! O micro foi marcado como em operação." if not r.get("ja_ativo") else "🚐 O micro já estava marcado como em operação. Obrigado por confirmar!"; await m.reply_text(t+"\n\n"+resumo_micro_status(),parse_mode="HTML",reply_markup=teclado_voltar()); return
  if a=="micro_desativar":
   if admin_ok(uid): ESTADO.desativar_micro(); await m.reply_text("🚐 Micro desativado pelo administrador.",reply_markup=teclado_admin_avisos())
   return
@@ -98,7 +109,7 @@ async def callback(u:Update,c:ContextTypes.DEFAULT_TYPE):
   await m.reply_text(t,reply_markup=teclado_voltar()); return
  if a=="horarios":
   micro_ativo=ESTADO.micro_esta_ativo(); t=montar_resumo_horarios()
-  if micro_ativo: t=limitar_resumo_principal(t,2)+"\n\n"+resumo_micro()
+  if micro_ativo: t=limitar_resumo_principal(t,2)+"\n\n"+resumo_micro_status()
   await m.reply_text(t,parse_mode="HTML",reply_markup=teclado_voltar()); return
  if a=="listar_horarios": await m.reply_text("📋 Qual período você quer consultar?",reply_markup=teclado_periodos()); return
  if a.startswith("periodo_"): await m.reply_text(listar_horarios_periodo(a.replace("periodo_","",1)),parse_mode="HTML",reply_markup=teclado_voltar()); return
