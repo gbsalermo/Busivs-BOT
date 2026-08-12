@@ -181,17 +181,17 @@ def _ultima_saida_recente(agora):
 
 def _pre_saida(agora):
     p=proximo_horario(agora)
-    if not p or p.get("origem")!="Garagem": return None
+    if not p or _nome_origem(p.get("origem", ""))!="Garagem": return None
     d=_previsto(p["hora"],agora)-agora
-    return {"hora":p["hora"],"origem":p["origem"]} if timedelta(0)<d<=timedelta(minutes=5) else None
+    return {"hora":p["hora"],"origem":p["origem"],"faltam_segundos":max(0,int(d.total_seconds()))} if timedelta(0)<d<=timedelta(minutes=JANELA_PRE_SAIDA_GARAGEM_MINUTOS) else None
 
 def _tem_recente(estado,agora):
-    h=_dt(estado.get("horario")); return bool(h and timedelta(0)<=agora-h<=timedelta(minutes=30))
+    h=_dt(estado.get("horario")); return bool(h and timedelta(0)<=agora-h<=timedelta(minutes=JANELA_CONFIRMACAO_RECENTE_MINUTOS))
 
 def _quebra_recente(agora):
     hs=HORARIOS["principal"]; q=None
     for a,b in zip(hs,hs[1:]):
-        if _minutos(b["hora"])-_minutos(a["hora"])>60:
+        if _minutos(b["hora"])-_minutos(a["hora"])>LIMITE_INTERVALO_BLOCO_MINUTOS:
             ini=_previsto(b["hora"],agora)
             if ini<=agora:q=ini
     return q
@@ -201,7 +201,7 @@ def _lacuna(agora):
     if not ag or not ag.get("proxima"): return False
     hs=HORARIOS["principal"]; ph=ag["proxima"]["hora"]
     for i,h in enumerate(hs):
-        if h["hora"]==ph and i>0: return _minutos(ph)-_minutos(hs[i-1]["hora"])>60
+        if h["hora"]==ph and i>0: return _minutos(ph)-_minutos(hs[i-1]["hora"])>LIMITE_INTERVALO_BLOCO_MINUTOS
     return False
 
 def limpar_se_expirado(estado,agora):
@@ -215,8 +215,8 @@ def limpar_se_expirado(estado,agora):
 def registrar_passagem(estado,ponto_id,telegram_id=None,agora=None):
     agora=agora or agora_local(); estado=limpar_se_expirado(estado,agora)
     if ponto_id not in PONTOS:return estado,{"aceito":False,"motivo":"ponto_invalido"}
-    ag=aguardando_proxima_saida(agora)
-    if ag and not _tem_recente(estado,agora): return estado,{"aceito":False,"motivo":"fora_circulacao","origem":ag["origem"],"proxima":ag.get("proxima")}
+    ag=aguardando_proxima_saida(agora); pre=_pre_saida(agora)
+    if ag and not pre and not _tem_recente(estado,agora): return estado,{"aceito":False,"motivo":"fora_circulacao","origem":ag["origem"],"proxima":ag.get("proxima")}
     if estado.get("ponto_atual")==ponto_id:return estado,{"aceito":False,"motivo":"duplicado","ponto":PONTOS[ponto_id]["nome"]}
     anterior=estado.get("ponto_atual"); hist=estado.get("historico",[]); resultado=_resultado_hist(hist,ponto_id)
     if resultado is None and anterior: resultado=_analisar(anterior,ponto_id)
@@ -257,13 +257,20 @@ def montar_localizacao(estado,agora=None):
     agora=agora or agora_local(); estado=limpar_se_expirado(estado,agora); atual=viagem_em_andamento(agora); ret=viagem_em_retorno(agora); ag=aguardando_proxima_saida(agora); prox=proximo_horario(agora)
     if not estado.get("ponto_atual"):
         pre=_pre_saida(agora)
-        if pre:return estado,"🅿️ Sem confirmação recente, o ônibus provavelmente está na Garagem.\n\n⏰ Próxima saída prevista:\n     🕐 %s — Garagem\n\nℹ️ É uma previsão pelo horário oficial; pode haver atraso na chegada à garagem ou na saída."%pre["hora"]
+        if pre:
+            minutos=max(1,(pre["faltam_segundos"]+59)//60)
+            return estado,(f"🟡 Janela de pré-saída ativa.\n\n"
+                          f"⏰ Saída oficial: {pre['hora']} — Garagem\n"
+                          f"⌛ Faltam aproximadamente {minutos} min.\n\n"
+                          "🚌 Sem confirmação recente, o ônibus pode ainda estar na Garagem ou já ter iniciado o percurso.\n"
+                          "📍 Uma confirmação de ponto agora tem prioridade sobre essa estimativa.\n\n"
+                          "ℹ️ O horário oficial é uma referência e pode haver pequena antecipação ou atraso.")
         if atual:return estado,f"🚌 Há uma volta prevista em andamento.\n🕐 Saída oficial: {atual['hora']} — {atual['origem']}\n➡️ Sentido provável: RUA\n\nℹ️ Não há confirmação recente de passagem; o ônibus pode estar adiantado ou atrasado."
         if ret:return estado,_retorno(ret,prox)
         if ag:return estado,_aguardando(ag)
         sr=_ultima_saida_recente(agora)
         if sr:return estado,f"🚌 Uma saída oficial recente ainda pode estar em percurso por causa de atraso.\n🕐 Saída prevista: {sr['hora']} — {sr['origem']}\n➡️ O sentido e a posição exata dependem de uma confirmação de passagem.\n\nℹ️ O horário oficial é apenas referência; a volta pode estar atrasada."
-        return estado,"🚌 Ainda não há confirmação de passagem nesta sessão.\n\nUse 📍 Informar passagem para registrar quando o ônibus passar por um ponto."
+        return estado,"🚌 Ainda não há confirmação de passagem nesta sessão.\n\nUse 📍 Informar ponto atual para registrar quando o ônibus passar por um ponto."
     h=_dt(estado.get("horario")); pid=estado["ponto_atual"]; nome=PONTOS[pid]["nome"]; r=estado.get("resultado_rota"); linhas=[f"📍 Última confirmação: {nome}",f"🕐 {_tempo(h,agora)} ({h.strftime('%H:%M:%S') if h else '--:--'})"]
     if ret and h:
         hh,mm=map(int,ret["inicio_retorno"].split(":")); inicio=h.replace(hour=hh,minute=mm,second=0,microsecond=0)
