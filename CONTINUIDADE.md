@@ -1,96 +1,333 @@
-# CONTINUIDADE - BUSIVS BOT
+# CONTINUIDADE — BUSIVS BOT
 
-Documento técnico de retomada rápida do projeto.
+Documento técnico para retomar o projeto rapidamente sem perder decisões, problemas encontrados e o estado real da aplicação.
 
----
-
-# Regras importantes para contribuir
-
-Antes de mexer no projeto:
-
-1. **Não tratar estimativa como confirmação.**
-2. **Não inferir sentido apenas pelo nome do ponto.**
-3. **Manter horários, pontos e rotas nos JSONs sempre que possível.**
-4. **Considerar atraso real antes de bloquear uma passagem.**
-5. **Testar Biblioteca nos dois sentidos ao alterar a lógica de rota.**
-6. **Preservar a diferença entre dado confirmado e dado estimado.**
-7. **Localização é temporária; não criar histórico permanente sem necessidade real.**
-8. **Viagens do mesmo bloco operacional podem compartilhar contexto.**
-9. **Preferir soluções pequenas e compreensíveis por outros alunos.**
-10. **Não adicionar infraestrutura sem um problema concreto.**
-11. **A adaptação Cloudflare não pode quebrar a versão atual em polling.**
-
-> **Princípio principal: o BUSIVS BOT deve ser simples, eficaz e de custo zero ou próximo de zero.**
+> **Estado em 11/08/2026:** BUSIVS BOT funcional e hospedado em produção no Cloudflare Workers, integrado ao Telegram por webhook e com estado colaborativo compartilhado em Durable Object.
 
 ---
 
-# Estado atual estável
+# 1. Direção atual do projeto
 
-A versão funcional permanece na `main`:
+O protótipo principal foi concluído e a migração para Cloudflare foi validada em produção.
+
+A partir daqui, não existe mais uma etapa formal de bateria de testes antes de cada avanço. O desenvolvimento passa para **melhoria contínua orientada pelo uso real**:
+
+```text
+serviço em produção
+      ↓
+uso real / observação dos logs
+      ↓
+problema ou oportunidade identificada
+      ↓
+correção pequena e objetiva
+      ↓
+deploy
+      ↓
+validação em uso
+```
+
+Testes automatizados continuam úteis e devem ser adicionados principalmente quando protegem uma regra importante ou reproduzem um bug real. Eles deixam de ser uma etapa separada do roadmap.
+
+**Foco imediato:** pequenas melhorias que aumentem eficiência, confiabilidade e clareza sem aumentar desnecessariamente a infraestrutura.
+
+---
+
+# 2. Princípios que não devem ser quebrados
+
+1. Não tratar estimativa como confirmação.
+2. Não inferir sentido apenas pelo nome de um ponto.
+3. Biblioteca aparece duas vezes e precisa ser interpretada pelo contexto da rota.
+4. Horário oficial é referência; atraso real deve ser tolerado.
+5. Confirmações colaborativas precisam ser coerentes com rota e tempo.
+6. Manter horários, pontos e rota em estruturas simples sempre que possível.
+7. Localização é temporária; não criar histórico permanente sem necessidade real.
+8. Viagens do mesmo bloco operacional podem compartilhar contexto.
+9. Preferir correções pequenas, legíveis e fáceis de manter.
+10. Não adicionar infraestrutura sem problema concreto.
+11. Preservar a versão original em polling como referência/fallback.
+12. Tokens, secrets e credenciais nunca devem ser versionados.
+
+> **Princípio central:** o BUSIVS deve continuar simples, eficaz e de custo zero ou próximo de zero.
+
+---
+
+# 3. Arquitetura atual — PRODUÇÃO
+
+A arquitetura ativa deixou de ser polling local e passou a ser:
 
 ```text
 Telegram
-   ↓ long polling
-Python + python-telegram-bot
+   ↓ webhook HTTPS
+Cloudflare Python Worker
    ↓
-JSON = horários / pontos / rota
-Memória = contexto temporário do ônibus
+entry.py
+   ↓
+regras do BUSIVS
+   ↕
+BusState — Durable Object / SQLite
+   ↓
+Telegram Bot API
 ```
 
-Arquivos principais:
+O Worker recebe cada Update do Telegram, valida o secret do webhook, interpreta mensagens/callbacks, consulta ou altera o estado compartilhado e responde pela Telegram Bot API.
+
+O endpoint público de saúde é:
 
 ```text
-src/bot.py       → interface Telegram / polling
-src/horarios.py  → horários e estimativas
-src/passagens.py → colaboração, estado e localização atual
-src/rota.py      → sentido e próximo ponto
-
-data/horarios_letivo.json
-data/pontos.json
-data/rotas.json
+GET /health
 ```
 
-Dependências atuais da versão principal:
+A versão atual identifica o runtime como `cloudflare-worker`.
+
+---
+
+# 4. Organização das versões
+
+Durante a migração foi criada a branch `feat/cloudflare-worker`. Posteriormente a versão Cloudflare foi promovida para `main`.
+
+Para preservar o projeto original foi criada:
 
 ```text
-python-telegram-bot
-python-dotenv
+mainOriginal
+```
+
+Estado conceitual:
+
+```text
+main
+→ versão atual Cloudflare / produção
+
+mainOriginal
+→ versão original em polling preservada como fallback/referência
+```
+
+Também existem cópias locais separadas da versão Cloudflare e da versão original.
+
+---
+
+# 5. Estrutura principal da versão Cloudflare
+
+```text
+cloudflare/
+├── pyproject.toml
+├── pylock.toml
+├── wrangler.jsonc
+├── src/
+│   ├── entry.py
+│   ├── telegram_api.py
+│   ├── estado_bus.py
+│   ├── regras.py
+│   ├── plausibilidade.py
+│   └── dados.py
+└── tests/
+```
+
+Responsabilidades:
+
+```text
+entry.py
+→ HTTP Worker, webhook, menus, callbacks e integração geral
+
+telegram_api.py
+→ chamadas HTTP para Telegram Bot API
+
+estado_bus.py
+→ Durable Object BusState e persistência do estado operacional
+
+regras.py
+→ horários, rota, localização, blocos e registro de passagem
+
+plausibilidade.py
+→ proteção contra deslocamentos impossíveis em tempo muito curto
+
+dados.py
+→ carregamento/representação dos horários, pontos e rota usados pelo Worker
 ```
 
 ---
 
-# Decisão de persistência
+# 6. Persistência
 
-Na versão em polling, continuamos **sem SQL**.
-
-```text
-JSON    → informação permanente
-Memória → informação atual do bloco operacional
-```
-
-O histórico temporário vale enquanto pertence ao mesmo bloco operacional.
-
-Regra atual:
+A decisão original de evitar um banco tradicional foi mantida.
 
 ```text
-intervalo entre saídas <= 60 min
-→ mesmo bloco
-→ mantém contexto
+Dados permanentes de configuração
+→ horários / pontos / rota
 
-intervalo entre saídas > 60 min
-→ quebra de bloco
-→ contexto antigo pode expirar
+Estado operacional compartilhado
+→ Durable Object
+
+Histórico permanente de localização
+→ NÃO existe
 ```
 
-Também limpa estado de dia anterior.
+O Durable Object é necessário porque Workers são serverless e requisições diferentes não podem depender da memória de uma mesma instância Python.
 
-Banco tradicional só deve ser reconsiderado para histórico de longo prazo, métricas, estatísticas, calibração ou controle de abuso persistente.
+A classe usada é:
 
-**Exceção de infraestrutura:** na versão Cloudflare, Durable Object/SQLite pode ser usado apenas para substituir a memória efêmera do processo, porque Workers não garantem que duas requisições sejam executadas na mesma instância. Isso não muda a decisão de não criar histórico permanente de localização.
+```text
+BusState
+```
+
+Binding:
+
+```text
+BUS_STATE → BusState
+```
+
+O estado salvo contém apenas informações necessárias para a operação recente, como ponto atual/anterior, horário, resultado da rota e histórico curto.
 
 ---
 
-# Rota principal validada
+# 7. Problema do Durable Object durante o deploy
+
+Durante a configuração de produção apareceu o erro:
+
+```text
+Durable Object exports reconciliation failed
+class 'BusState' has a provisioned Durable Object namespace
+but is not declared in exports
+```
+
+Causa: o namespace já havia sido provisionado pela Cloudflare, mas uma configuração/deploy posterior não declarava `BusState` corretamente nos exports.
+
+A configuração foi corrigida mantendo `BusState` declarado como Durable Object com armazenamento SQLite.
+
+**Não remover essa declaração de forma casual.** Uma vez provisionado, a Cloudflare exige reconciliação explícita caso a classe seja removida, renomeada ou transferida.
+
+---
+
+# 8. Secrets e variáveis de ambiente
+
+Secrets de produção necessários:
+
+```text
+TELEGRAM_BOT_TOKEN
+TELEGRAM_WEBHOOK_SECRET
+```
+
+Eles não devem estar no GitHub nem em `.env` versionado.
+
+Durante a implantação via integração do repositório ocorreu um problema importante: o deploy reclamava que os secrets obrigatórios não estavam definidos, e a interface de adicionar variável chegou a ser bloqueada pelo erro de reconciliação do Durable Object.
+
+A solução funcional foi cadastrar os secrets diretamente pelo Wrangler:
+
+```bash
+npx wrangler secret put TELEGRAM_BOT_TOKEN
+npx wrangler secret put TELEGRAM_WEBHOOK_SECRET
+```
+
+Após cadastrados corretamente no Worker, novos deploys normais não exigem recadastrar os tokens.
+
+O `.env` pode ser usado apenas no ambiente local e nunca deve ser enviado ao repositório.
+
+---
+
+# 9. PyWrangler / Workers Python
+
+Durante a configuração local apareceram problemas com versões antigas do `workers-py`/PyWrangler e com a criação do ambiente Pyodide pelo `uv`.
+
+Exemplos encontrados:
+
+```text
+uv: command not found
+```
+
+Depois da instalação do `uv`, ocorreu erro ao consultar:
+
+```text
+cpython-3.13.2-emscripten-wasm32-musl
+```
+
+O ambiente Cloudflare posteriormente conseguiu executar corretamente o fluxo:
+
+```text
+uv run pywrangler deploy
+→ cria .venv
+→ cria .venv-workers
+→ baixa Pyodide
+→ instala python_modules
+→ passa o deploy para npx wrangler
+```
+
+O deploy validado utilizou `wrangler 4.121.0` e concluiu o upload do Worker com o binding `BUS_STATE`.
+
+Não alterar versões de runtime/dependências sem necessidade concreta, porque essa camada foi uma das partes mais sensíveis da migração.
+
+---
+
+# 10. Webhook Telegram
+
+Endpoint:
+
+```text
+POST /telegram/webhook
+```
+
+O Worker valida:
+
+```text
+X-Telegram-Bot-Api-Secret-Token
+```
+
+contra `TELEGRAM_WEBHOOK_SECRET`.
+
+Durante os testes manuais ocorreu:
+
+```json
+{"ok": false, "error": "webhook_secret_invalid"}
+```
+
+A validação funcionou como esperado: o header estava incorreto/ausente.
+
+Depois, um POST manual com secret válido retornou:
+
+```json
+{"ok": true, "handled": false, "reason": "update_type_not_supported_yet", "stage": "6.2"}
+```
+
+Isso confirmou antes da integração completa que URL pública, endpoint, JSON e autenticação estavam funcionando.
+
+Posteriormente o webhook completo foi conectado aos comandos e callbacks do bot.
+
+---
+
+# 11. Funcionalidades em produção
+
+O Circular Principal possui atualmente:
+
+- menu Telegram por botões;
+- horários fixos;
+- próximos horários;
+- listagem por manhã, almoço, tarde e noite;
+- previsão aproximada de chegada ao Portão 1;
+- identificação de pico;
+- rota completa;
+- pontos opcionais;
+- informar passagem;
+- estado colaborativo compartilhado;
+- última confirmação;
+- cálculo de sentido;
+- próximo ponto esperado;
+- percurso de retorno;
+- provável espera na origem;
+- pré-saída da Garagem;
+- proteção contra registro fora de circulação;
+- proteção contra duplicidade imediata;
+- histórico operacional curto;
+- recuperação de confirmações incompatíveis quando a sequência posterior permite;
+- ciclo de vida por blocos operacionais;
+- expiração de estado de dia anterior;
+- estimativa experimental de possível atraso;
+- proteção de plausibilidade física entre confirmações.
+
+Micro-ônibus ainda não foi implementado.
+
+Autenticação institucional continua adiada até existir uma necessidade demonstrada.
+
+---
+
+# 12. Rota principal validada
 
 ```text
 RU / Residências
@@ -122,310 +359,260 @@ Torre / COTEC (opcional)
 RU / Residências
 ```
 
-Biblioteca aparece duas vezes. Nunca inferir sentido apenas pelo nome do ponto.
+A Biblioteca aparece duas vezes. A função de análise trabalha com ocorrências/índices da rota em vez de assumir um sentido pelo ID do ponto.
 
 ---
 
-# Funcionalidades atuais do protótipo
+# 13. Blocos operacionais
 
-O Principal já possui:
+O estado não é limpo simplesmente ao terminar uma saída prevista, porque atrasos podem fazer uma viagem atravessar o horário teórico.
 
-- horários fixos por período;
-- previsão de chegada ao Portão 1;
-- identificação de horários de pico;
-- próxima saída;
-- viagem possivelmente em andamento;
-- percurso de retorno;
-- provável espera na origem da próxima saída;
-- pré-saída da Garagem;
-- informar passagem por botões;
-- histórico colaborativo curto em memória;
-- correção natural de confirmação isolada incompatível;
-- sentido e próximo ponto;
-- proteção contra passagem fora de circulação;
-- ciclo de vida por blocos operacionais;
-- regra experimental de possível atraso.
+Regra geral:
 
-Autenticação institucional continua adiada.
+```text
+intervalo entre saídas <= 60 min
+→ mantém contexto operacional
 
-Micro ainda não implementado.
+intervalo entre saídas > 60 min
+→ quebra de bloco
+→ contexto antigo pode expirar
+```
+
+Também há expiração quando o registro pertence a outro dia.
+
+A lógica evita que o horário oficial invalide automaticamente uma confirmação real recente.
 
 ---
 
-# Etapas concluídas
+# 14. Recuperação de registros colaborativos
+
+Uma decisão importante foi permitir recuperação natural de uma confirmação isolada incorreta.
+
+Exemplo conceitual:
 
 ```text
-Etapa 1   Base do bot                               ✅
-Etapa 2   Horários fixos do Principal              ✅
-Etapa 3   Pontos / rota / sentido / próximo ponto  ✅
-Etapa 4   Informar passagem                        ✅ protótipo
-Etapa 5   Localização / tempo / estados / proteção ✅ protótipo
-Etapa 5.5 Blocos operacionais                      ✅ validado
+A → registro errado → B
 ```
+
+Se `B` for coerente com uma confirmação anterior do histórico, o sistema pode reconstruir o movimento sem deixar um clique errado destruir toda a sessão.
+
+Essa flexibilidade gerou posteriormente um novo problema: o algoritmo podia aceitar sequências fisicamente impossíveis porque encontrava alguma combinação válida na rota.
 
 ---
 
-# Etapa 6 - Cloudflare / versão hospedada
+# 15. Bug encontrado em produção — saltos rápidos impossíveis
 
-## Objetivo
-
-Testar uma versão de produção com **custo R$ 0**, usando Cloudflare Workers e webhook do Telegram.
-
-A branch exclusiva é:
+Cenário observado:
 
 ```text
-feat/cloudflare-worker
+Biblioteca
+↓ poucos segundos
+Pavilhão I
+↓ poucos segundos
+RU
 ```
 
-A `main` deve continuar funcionando com `application.run_polling()` até toda a adaptação ser validada.
+Os registros eram aceitos porque a análise de rota encontrava ocorrências posteriores compatíveis e a recuperação histórica podia ignorar uma confirmação incompatível recente.
 
-Arquitetura pretendida:
+O problema não era apenas a ordem da rota: faltava considerar o **tempo necessário para o deslocamento**.
+
+Solução aplicada: criação de `plausibilidade.py` e validação antes de alterar o estado.
+
+Princípio atual:
 
 ```text
-Telegram
-   ↓ webhook HTTPS
-Cloudflare Python Worker
-   ↓
-regras do BUSIVS
-   ↕
-Durable Object SQLite
-   ↓
-Telegram Bot API
+pontos próximos / poucos trechos
+→ tolerância alta
+
+salto por vários trechos em tempo extremamente curto
+→ rejeitado
+
+salto longo após tempo plausível
+→ pode ser aceito
 ```
 
-Cloudflare Workers Python está em beta. Por isso a migração será incremental e terá critério claro de abandono.
+A proteção foi propositalmente conservadora para não transformar horário de clique em GPS. O estudante pode informar a passagem alguns segundos depois do ônibus passar.
 
-## 6.1 - Worker HTTP mínimo ✅ código pronto / validação de runtime pendente
+Quando bloqueado, o estado anterior é preservado e o usuário recebe mensagem explicando que a confirmação parece incompatível com a última passagem.
 
-Criado:
-
-```text
-cloudflare/
-├── README.md
-├── pyproject.toml
-├── wrangler.jsonc
-└── src/
-    ├── entry.py
-    └── telegram_api.py
-```
-
-Endpoint de saúde:
-
-```text
-GET /health
-```
-
-Critério restante para fechar 6.1 no ambiente Cloudflare:
-
-```text
-[ ] instalar/sincronizar pywrangler localmente
-[ ] rodar Worker localmente
-[ ] GET /health retornar 200
-[ ] fazer primeiro deploy Cloudflare
-[ ] GET /health funcionar na URL pública
-```
-
-## 6.2 - Webhook Telegram básico ✅ implementação pronta / ativação pendente
-
-Objetivo: receber Update sem ainda portar todo o bot.
-
-Implementado:
-
-```text
-[x] endpoint POST /telegram/webhook
-[x] TELEGRAM_BOT_TOKEN lido apenas como secret do ambiente
-[x] TELEGRAM_WEBHOOK_SECRET lido apenas como secret do ambiente
-[x] validação de X-Telegram-Bot-Api-Secret-Token
-[x] parsing de Update JSON
-[x] leitura de message / edited_message
-[x] extração de chat.id e text
-[x] envio de resposta simples via Bot API
-[x] Updates ainda não suportados retornam 200 sem quebrar o webhook
-[x] documentado rollback para polling
-```
-
-Ainda depende de execução/deploy real:
-
-```text
-[ ] configurar secrets na Cloudflare
-[ ] validar POST local manual
-[ ] publicar Worker
-[ ] validar /health público
-[ ] configurar setWebhook somente no teste
-[ ] enviar /start pelo Telegram e receber resposta do Worker
-[ ] remover webhook e confirmar retorno ao polling se necessário
-```
-
-Regra de segurança:
-
-> **Nunca ativar o webhook antes da URL pública estar validada.** Enquanto `setWebhook` estiver ativo, o polling atual deixa de receber Updates.
-
-## 6.3 - Adaptador de interface Telegram ⏭️ próxima subetapa de código
-
-Objetivo: separar regras do BUSIVS das APIs específicas de `python-telegram-bot`.
-
-```text
-[ ] menu principal
-[ ] próximos horários
-[ ] listar horários
-[ ] onde está o ônibus
-[ ] informar passagem
-[ ] callbacks dos pontos
-```
-
-As regras de horário/rota devem ser reaproveitadas sempre que o runtime permitir; evitar duplicação de regra de negócio.
-
-## 6.4 - Estado colaborativo no Durable Object
-
-Objetivo: substituir somente a memória temporária que não é confiável em ambiente serverless.
-
-Persistir apenas o contexto operacional curto:
-
-```text
-ponto atual
-ponto anterior
-horário
-resultado da rota
-histórico curto do bloco
-identificador necessário para deduplicação
-```
-
-Não transformar essa etapa em banco histórico.
-
-Usar **SQLite-backed Durable Object**, que é a modalidade disponível no Workers Free para novos projetos.
-
-## 6.5 - Ciclo de vida e blocos operacionais
-
-Portar e testar:
-
-```text
-mesmo bloco mantém contexto
-quebra > 60 min expira contexto
-dia anterior expira
-atraso não é bloqueado de forma rígida
-registros incompatíveis podem ser corrigidos por sequência posterior
-```
-
-## 6.6 - Testes de equivalência
-
-Comparar Worker vs versão polling:
-
-```text
-[ ] horários
-[ ] períodos
-[ ] pico
-[ ] retorno
-[ ] Garagem
-[ ] rota ida
-[ ] rota retorno
-[ ] Biblioteca nos dois sentidos
-[ ] pontos opcionais
-[ ] colaboração
-[ ] registro incorreto seguido de registro correto
-[ ] bloco operacional
-```
-
-A versão Cloudflare não avança para campo se alterar a regra funcional do protótipo sem intenção.
-
-## 6.7 - Deploy e teste de campo
-
-```text
-[ ] deploy definitivo
-[ ] secrets configurados
-[ ] webhook ativo
-[ ] confirmar logs
-[ ] confirmar consumo dentro do Free Plan
-[ ] teste com poucos alunos
-[ ] acompanhar erros e latência
-[ ] manter procedimento de rollback para polling
-```
+Testes específicos foram adicionados para esse bug.
 
 ---
 
-# Critérios de abandono da Cloudflare
+# 16. Observabilidade
 
-Não insistir na adaptação se ocorrer uma destas situações:
+Os logs/Observability do Cloudflare Worker podem ser habilitados no painel. A ativação pode solicitar um novo deploy para aplicar a configuração.
 
-- dependências essenciais incompatíveis com Python Workers;
-- CPU do Free Plan insuficiente para o fluxo normal;
-- Durable Objects tornarem o projeto desnecessariamente complexo;
-- comportamento do webhook ficar menos confiável do que polling;
-- necessidade de reescrever grande parte das regras já validadas;
-- custo deixar de ser próximo de zero.
+Depois disso, requisições do webhook e execuções do Worker podem ser acompanhadas pelo painel da Cloudflare.
 
-Nesse caso:
-
-```text
-feat/cloudflare-worker → permanece como experimento
-main                   → continua funcional
-hospedagem alternativa → VM/worker Python tradicional
-```
-
----
-
-# Testes locais atuais
-
-Executar antes de mudanças relevantes:
+Para acompanhamento ao vivo pelo terminal também pode ser usado:
 
 ```bash
-python -m unittest discover -s tests -v
+npx wrangler tail --name busivs-bot
 ```
 
-Os testes atuais cobrem rota, blocos operacionais e resiliência das confirmações colaborativas.
-
-Na branch Cloudflare, testes específicos devem ficar isolados dos testes do polling sempre que possível.
+Logs agora são parte importante da fase de melhoria contínua: devem ser usados para investigar comportamento real antes de adicionar complexidade.
 
 ---
 
-# Pré-hospedagem Cloudflare
+# 17. Problemas já encontrados e resolvidos
 
 ```text
-[x] regras principais do protótipo testadas localmente
-[x] branch de hospedagem isolada
-[x] plano gratuito confirmado antes da adaptação
-[x] estrutura inicial do Worker criada
-[x] receptor de webhook implementado
-[x] validação por secret implementada
-[x] cliente mínimo da Telegram Bot API implementado
-[ ] Worker executando localmente
-[ ] Worker implantado
-[ ] webhook real validado
-[ ] interface completa portada
-[ ] estado temporário portado
-[ ] testes de equivalência concluídos
-[ ] teste de campo
+uv não instalado
+→ instalação/configuração do uv
+
+falha Pyodide local
+→ atualização/ajuste da toolchain e validação pelo ambiente Cloudflare
+
+Worker inicialmente retornando apenas Hello World
+→ entrypoint/configuração corrigidos
+
+webhook_secret_invalid
+→ header/secret corrigidos e validação confirmada
+
+error code 1101
+→ investigação e correções da adaptação Worker
+
+secrets ausentes no deploy
+→ cadastro persistente com wrangler secret put
+
+BusState provisionado mas ausente dos exports
+→ Durable Object reconciliado na configuração
+
+sequência de pontos impossível aceita rapidamente
+→ camada de plausibilidade física antes do registro
 ```
+
+Esses problemas são importantes porque representam pontos frágeis que podem reaparecer após mudanças de infraestrutura.
 
 ---
 
-# Próximas etapas de produto depois da hospedagem
-
-A numeração anterior foi deslocada porque a adaptação Cloudflare passou a ser a Etapa 6.
+# 18. Estado das etapas
 
 ```text
-Etapa 7  - Avisos, comunicados e ocorrências ⏳
-Etapa 8  - Principal + Micro                 ⏳
-Etapa 9  - NFC                               ⏳
-Etapa 10 - Desvios dos portões               ⏳
-Etapa 11 - Modo de férias                     ⏳
-Etapa 12 - Autenticação institucional         ⏳ se necessária
-Etapa 13 - Avisos e alertas automáticos       ⏳ pós-protótipo
+Etapa 1   Base do bot                                  ✅
+Etapa 2   Horários fixos do Principal                 ✅
+Etapa 3   Pontos / rota / sentido / próximo ponto     ✅
+Etapa 4   Informar passagem                           ✅
+Etapa 5   Localização / tempo / estados / proteção    ✅
+Etapa 5.5 Blocos operacionais                         ✅
+Etapa 6   Cloudflare / hospedagem                     ✅ PRODUÇÃO
+  6.1 Worker HTTP                                     ✅
+  6.2 Webhook Telegram                                ✅
+  6.3 Interface Telegram                              ✅
+  6.4 Durable Object                                  ✅
+  6.5 Ciclo operacional                               ✅
+  6.6 Equivalência                                    ↪ absorvida pelo uso real
+  6.7 Deploy / campo                                  ✅
 ```
 
-Prioridade após hospedar: testar primeiro o Principal com usuários reais antes de ampliar escopo.
+A antiga etapa formal de testes de equivalência não será mantida como bloqueio do roadmap. A equivalência essencial foi validada durante a migração e, daqui em diante, erros serão tratados conforme aparecerem em produção.
 
 ---
 
-# Decisão resumida
+# 19. Fase atual — melhorias pequenas de produção
+
+Antes de ampliar o escopo do BUSIVS, priorizar melhorias incrementais no serviço existente.
+
+Boas candidatas:
 
 ```text
-MAIN
-polling + memória
-= versão estável / fallback
-
-FEAT/CLOUDFLARE-WORKER
-webhook + Worker + Durable Object
-= versão experimental de hospedagem gratuita
+1. melhorar mensagens e feedback de ações
+2. reduzir cliques desnecessários
+3. melhorar tratamento de confirmações conflitantes
+4. ajustar tempos/tolerâncias com observações reais
+5. melhorar logs úteis para diagnóstico
+6. evitar chamadas desnecessárias à Telegram Bot API
+7. revisar expiração do estado conforme situações reais aparecerem
+8. melhorar tratamento de erros sem derrubar o webhook
+9. observar consumo de Worker/Durable Object
+10. manter respostas rápidas no Telegram
 ```
 
-> **O objetivo da Etapa 6 não é melhorar a arquitetura por vaidade. É conseguir colocar o BUSIVS online por R$ 0 sem perder o comportamento que já foi validado.**
+Não implementar todas antecipadamente. Escolher uma melhoria por vez com base no impacto observado.
+
+---
+
+# 20. Pós-protótipo / futuras funcionalidades
+
+Depois de consolidar a versão atual:
+
+```text
+Avisos, comunicados e ocorrências
+Principal + Micro
+NFC nos pontos
+Desvios dos portões
+Modo de férias
+Refinamento de estimativas com dados reais
+Proteções adicionais contra abuso/informação incorreta
+Autenticação institucional — somente se necessária
+Avisos e alertas automáticos
+Métricas/estatísticas — somente se gerarem valor real
+```
+
+Prioridade continua sendo fazer o **Principal atual funcionar muito bem** antes de aumentar o escopo.
+
+---
+
+# 21. O que NÃO fazer agora
+
+Evitar neste momento:
+
+- criar frontend web apenas por estética;
+- adicionar PostgreSQL/MySQL para substituir o estado simples;
+- criar cadastro de usuário sem necessidade;
+- armazenar histórico permanente de localização;
+- adicionar autenticação institucional preventivamente;
+- reescrever o projeto em outro framework;
+- transformar estimativas em afirmações absolutas;
+- tentar resolver antecipadamente todos os possíveis abusos;
+- expandir para Micro antes de estabilizar o Principal.
+
+---
+
+# 22. Procedimento de mudança daqui para frente
+
+Para cada problema encontrado:
+
+```text
+1. reproduzir o comportamento
+2. identificar qual regra realmente falhou
+3. corrigir no menor ponto possível
+4. adicionar teste se o bug representar uma regra importante
+5. fazer deploy
+6. validar no Telegram
+7. observar logs/comportamento
+8. registrar no CONTINUIDADE se alterar decisão relevante
+```
+
+O objetivo não é perseguir arquitetura perfeita. É manter um serviço simples que resolva bem o problema dos estudantes.
+
+---
+
+# 23. Resumo para retomada rápida
+
+```text
+PRODUÇÃO
+main
+Cloudflare Worker Python
+Telegram Webhook
+Durable Object BusState / SQLite
+horários + rota + colaboração
+secrets persistidos na Cloudflare
+logs disponíveis para observação
+
+FALLBACK
+mainOriginal
+versão Python em polling
+
+FASE ATUAL
+melhorias pequenas e correções orientadas pelo uso real
+
+PRIORIDADE
+confiabilidade + eficiência + simplicidade
+
+PRÓXIMO PASSO
+observar o serviço em produção e atacar uma melhoria pequena por vez
+```
+
+> **O BUSIVS deixou de ser apenas um protótipo local. A versão principal está online; agora o trabalho é fazê-la funcionar cada vez melhor antes de aumentar seu escopo.**
