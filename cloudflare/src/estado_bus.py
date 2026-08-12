@@ -107,8 +107,9 @@ class BusState(DurableObject):
     async def registrar(self, ponto_id, telegram_id=None):
         estado = await self._carregar()
         agora = agora_local()
+        avisos = await self._carregar_avisos()
 
-        bloqueio = validar_deslocamento(estado, ponto_id, agora)
+        bloqueio = validar_deslocamento(estado, ponto_id, agora, avisos=avisos)
         if bloqueio is not None:
             return bloqueio
 
