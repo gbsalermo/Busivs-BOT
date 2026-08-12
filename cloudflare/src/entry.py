@@ -12,7 +12,7 @@ HEADER_ADMIN = "X-BUSIVS-Admin-Secret"
 def teclado_menu():
     return {"inline_keyboard":[
         [{"text":"🚌 Onde está o ônibus?","callback_data":"onde"}],
-        [{"text":"📍 Informar passagem","callback_data":"local"}],
+        [{"text":"📍 Informar ponto atual","callback_data":"local"}],
         [{"text":"⏰ Próximos horários","callback_data":"horarios"}],
         [{"text":"📋 Listar horários","callback_data":"listar_horarios"}],
         [{"text":"🗺️ Rota atual","callback_data":"rota"}],
