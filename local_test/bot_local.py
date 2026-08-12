@@ -93,9 +93,10 @@ async def callback(u:Update,c:ContextTypes.DEFAULT_TYPE):
   if admin_ok(uid): ESTADO.desativar_micro(); await m.reply_text("🚐 Micro desativado pelo administrador.",reply_markup=teclado_admin_avisos())
   return
  if a=="onde":
-  e=ESTADO.obter_estado(estado_vazio); e,t=montar_localizacao(e); ESTADO.salvar_estado(e)
-  if ESTADO.micro_esta_ativo(): em=ESTADO.obter_estado(estado_vazio,"micro"); em,tm=montar_localizacao(em); ESTADO.salvar_estado(em,"micro"); t+="\n\n🚐 MICRO — REFORÇO\n"+tm
-  await m.reply_text(t,reply_markup=teclado_voltar()); return
+  e=ESTADO.obter_estado(estado_vazio); e,t=montar_localizacao(e); ESTADO.salvar_estado(e); t="🚌 <b>CIRCULAR PRINCIPAL</b>\n\n"+t
+  if ESTADO.micro_esta_ativo():
+   em=ESTADO.obter_estado(estado_vazio,"micro"); em,tm=montar_localizacao(em); ESTADO.salvar_estado(em,"micro"); status=texto_tempo_micro(); t+="\n\n────────────\n\n🚐 <b>MICRO — REFORÇO</b>"+("\n"+status if status else "")+"\n\n"+tm
+  await m.reply_text(t,parse_mode="HTML",reply_markup=teclado_voltar()); return
  if a=="local":
   if ESTADO.micro_esta_ativo(): await m.reply_text("📍 Qual veículo você viu?",reply_markup=teclado_veiculo())
   else: await m.reply_text("📍 Onde o ônibus acabou de passar?",reply_markup=teclado_pontos("local_principal"))
