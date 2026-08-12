@@ -1,6 +1,7 @@
 import json
 from workers import DurableObject
 from ciclo_noturno import reiniciar_se_novo_ciclo_noturno
+from horarios_pico import montar_resumo_horarios
 from regras import agora_local, estado_vazio, montar_localizacao, registrar_passagem
 from validacao_rota import validar_deslocamento
 
@@ -24,6 +25,11 @@ class BusState(DurableObject):
         estado, texto = montar_localizacao(estado)
         await self._salvar(estado)
         return {"texto": texto}
+
+    async def resumo_horarios(self):
+        estado = await self._carregar()
+        estado = reiniciar_se_novo_ciclo_noturno(estado)
+        return {"texto": montar_resumo_horarios(estado=estado)}
 
     async def registrar(self, ponto_id, telegram_id=None):
         estado = await self._carregar()
