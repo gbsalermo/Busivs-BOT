@@ -3,6 +3,8 @@ from workers import DurableObject
 from regras import agora_local, estado_vazio, montar_localizacao, registrar_passagem
 from validacao_rota import validar_deslocamento
 
+MAX_AVISOS_ATIVOS = 3
+
 
 class BusState(DurableObject):
     async def _carregar(self):
@@ -16,6 +18,55 @@ class BusState(DurableObject):
 
     async def _salvar(self, estado):
         await self.ctx.storage.put("estado", json.dumps(estado, ensure_ascii=False))
+
+    async def _carregar_avisos(self):
+        bruto = await self.ctx.storage.get("avisos")
+        if not bruto:
+            return []
+        try:
+            avisos = json.loads(bruto)
+            return avisos if isinstance(avisos, list) else []
+        except Exception:
+            return []
+
+    async def _salvar_avisos(self, avisos):
+        avisos = list(avisos)[-MAX_AVISOS_ATIVOS:]
+        await self.ctx.storage.put("avisos", json.dumps(avisos, ensure_ascii=False))
+
+    async def listar_avisos(self):
+        return {"avisos": await self._carregar_avisos()}
+
+    async def adicionar_aviso(self, texto):
+        texto = (texto or "").strip()
+        if not texto:
+            return {"ok": False, "motivo": "aviso_vazio"}
+
+        avisos = await self._carregar_avisos()
+        if texto in avisos:
+            return {"ok": True, "avisos": avisos, "duplicado": True}
+
+        avisos.append(texto)
+        avisos = avisos[-MAX_AVISOS_ATIVOS:]
+        await self._salvar_avisos(avisos)
+        return {"ok": True, "avisos": avisos, "duplicado": False}
+
+    async def remover_aviso(self, indice):
+        avisos = await self._carregar_avisos()
+        try:
+            indice = int(indice)
+        except Exception:
+            return {"ok": False, "motivo": "indice_invalido", "avisos": avisos}
+
+        if indice < 0 or indice >= len(avisos):
+            return {"ok": False, "motivo": "indice_invalido", "avisos": avisos}
+
+        removido = avisos.pop(indice)
+        await self._salvar_avisos(avisos)
+        return {"ok": True, "removido": removido, "avisos": avisos}
+
+    async def limpar_avisos(self):
+        await self._salvar_avisos([])
+        return {"ok": True, "avisos": []}
 
     async def localizacao(self):
         estado = await self._carregar()
