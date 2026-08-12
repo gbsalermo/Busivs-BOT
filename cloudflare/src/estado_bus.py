@@ -1,6 +1,7 @@
 import json
 from workers import DurableObject
 from ciclo_noturno import reiniciar_se_novo_ciclo_noturno
+from expiracao_pico import expirar_confirmacao_pico
 from horarios_pico import montar_resumo_horarios
 from regras import agora_local, estado_vazio, montar_localizacao, registrar_passagem
 from validacao_rota import validar_deslocamento
@@ -21,23 +22,29 @@ class BusState(DurableObject):
 
     async def localizacao(self):
         estado = await self._carregar()
-        estado = reiniciar_se_novo_ciclo_noturno(estado)
-        estado, texto = montar_localizacao(estado)
+        agora = agora_local()
+        estado = reiniciar_se_novo_ciclo_noturno(estado, agora)
+        estado = expirar_confirmacao_pico(estado, agora)
+        estado, texto = montar_localizacao(estado, agora)
         await self._salvar(estado)
         return {"texto": texto}
 
     async def resumo_horarios(self):
         estado = await self._carregar()
-        estado = reiniciar_se_novo_ciclo_noturno(estado)
-        return {"texto": montar_resumo_horarios(estado=estado)}
+        agora = agora_local()
+        estado = reiniciar_se_novo_ciclo_noturno(estado, agora)
+        estado = expirar_confirmacao_pico(estado, agora)
+        await self._salvar(estado)
+        return {"texto": montar_resumo_horarios(estado=estado, agora=agora)}
 
     async def registrar(self, ponto_id, telegram_id=None):
         estado = await self._carregar()
         agora = agora_local()
         estado_original = estado
         estado = reiniciar_se_novo_ciclo_noturno(estado, agora)
+        estado = expirar_confirmacao_pico(estado, agora)
 
-        if estado is not estado_original:
+        if estado != estado_original:
             await self._salvar(estado)
 
         bloqueio = validar_deslocamento(estado, ponto_id, agora)
