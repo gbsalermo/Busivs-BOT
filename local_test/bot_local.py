@@ -41,6 +41,7 @@ AVISOS_PREDEFINIDOS = [
     "🛠️ Circular quebrou em meio ao trajeto",
     "🌧️ Tempo chuvoso, circular pode demorar mais do que o esperado",
     "🧍‍♂️🧍‍♀️ Superlotação do circular",
+    "🚐 Micro está rodando!",
     "🚌 Rota alterada temporariamente",
     "📅 Horários especiais hoje",
 ]
@@ -258,11 +259,15 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if acao.startswith("aviso_rem_"):
         if not admin_ok(user_id): return
         resultado = ESTADO.remover_aviso(acao.replace("aviso_rem_", "", 1))
-        await chat.reply_text("✅ Aviso removido.\n\n" + texto_avisos(resultado.get("avisos", []), True), reply_markup=teclado_admin_avisos()); return
+        await chat.reply_text(("✅ Aviso removido." if resultado.get("ok") else "⚠️ Aviso inválido.") + "\n\n" + texto_avisos(resultado.get("avisos", []), True), reply_markup=teclado_admin_avisos()); return
     if acao == "aviso_limpar":
         if not admin_ok(user_id): return
         ESTADO.limpar_avisos()
-        await chat.reply_text("🧹 Todos os avisos foram removidos.", reply_markup=teclado_admin_avisos())
+        await chat.reply_text("🧹 Todos os avisos foram removidos.", reply_markup=teclado_admin_avisos()); return
+
+
+async def erro(update, context):
+    print("ERRO:", repr(context.error))
 
 
 def main():
@@ -272,6 +277,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, texto_admin))
+    app.add_error_handler(erro)
     app.run_polling(drop_pending_updates=True)
 
 
