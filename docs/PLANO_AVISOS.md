@@ -80,8 +80,10 @@ Tempo chuvoso
 
 Portão fechado
 → não é apenas aviso textual
-→ rota e duração da volta podem mudar
-→ integração completa será feita na etapa de rota operacional
+→ o ponto continua sendo atendido
+→ muda o acesso usado para ida/retorno
+→ aumenta significativamente a duração da volta
+→ pode gerar efeito cascata nas próximas saídas
 
 Rota alterada
 → próximo ponto e estimativas da rota padrão podem não ser válidos
@@ -90,11 +92,87 @@ Horários especiais
 → grade padrão pode não representar integralmente a operação do dia
 ```
 
+## Regra operacional dos portões
+
+**Portão fechado significa acesso fechado, não ponto removido da rota.**
+
+### Portão 1 fechado
+
+O ônibus continua atendendo/parando no **Portão 1**. Porém, como o acesso pelo P1 está fechado, o retorno ao campus precisa ocorrer pelo **Portão 2**.
+
+Fluxo conceitual:
+
+```text
+... → Portão 2 → trecho externo → Portão 1
+                           ↓
+                    atende o Portão 1
+                           ↓
+                 retorno excepcional
+                           ↓
+                       Portão 2
+                           ↓
+                    interior do campus
+```
+
+Consequências:
+
+```text
+- Portão 1 continua aparecendo como ponto válido;
+- Portão 1 → Portão 2 passa a ser uma sequência operacional válida;
+- a volta tende a ficar significativamente mais longa;
+- previsões padrão deixam de ser confiáveis sem ajuste;
+- a volta seguinte pode iniciar atrasada por efeito cascata.
+```
+
+### Portão 2 fechado
+
+O ônibus continua atendendo/parando no **Portão 2**. O acesso normal pelo P2 não pode ser usado e o fluxo precisa ser feito pelo **Portão 1**.
+
+Consequências:
+
+```text
+- Portão 2 continua aparecendo como ponto válido;
+- o ônibus precisa usar o P1 como acesso operacional;
+- a volta tende a ficar significativamente mais longa;
+- previsões padrão precisam ser apresentadas com ressalva;
+- horários posteriores podem sofrer atraso acumulado.
+```
+
+### Se ambos aparecerem como fechados
+
+Esse estado deve ser tratado como **configuração operacional inválida/indeterminada** até existir informação concreta de qual acesso alternativo está sendo usado. O BUSIVS não deve inventar uma rota possível.
+
+### Estimativa de atraso
+
+Nesta etapa, **não adicionar um número fixo de minutos**. Ainda não há medição real suficiente para dizer quanto o desvio acrescenta.
+
+Enquanto não houver dados:
+
+```text
+rota normal
+→ mantém estimativas atuais
+
+portão fechado
+→ mantém horário oficial como referência
+→ informa que a duração da volta está significativamente afetada
+→ alerta que próximas saídas podem atrasar
+→ evita apresentar a previsão padrão como se tivesse a mesma precisão
+```
+
+Quando houver observações reais, criar um adicional específico por cenário, em vez de chutar um valor.
+
 ## Comportamento já aplicado na alpha
 
-`Onde está o ônibus?` passa a exibir contexto operacional quando existir aviso relevante.
+`Onde está o ônibus?` exibe contexto operacional quando existir aviso relevante.
 
-`Próximos horários` e a listagem por período passam a avisar quando uma ocorrência ativa puder afetar a volta atual ou as próximas.
+`Próximos horários` e a listagem por período avisam quando uma ocorrência ativa puder afetar a volta atual ou as próximas.
+
+A validação colaborativa também passou a conhecer a primeira exceção de rota:
+
+```text
+Portão 1 fechado + última confirmação no P1 + nova confirmação no P2
+→ sequência aceita como retorno operacional pelo Portão 2
+```
 
 Exemplo para quebra:
 
@@ -143,6 +221,6 @@ Os avisos ativos usam o Durable Object já existente.
 
 ## Evolução futura
 
-Fechamento de Portão 1/2 e rota alterada precisam evoluir para um **estado operacional de rota**, alterando efetivamente sequência de pontos, plausibilidade e estimativas, não apenas mensagens.
+Fechamento de Portão 1/2 e rota alterada precisam evoluir gradualmente para alterar também estimativas quantitativas conforme dados reais forem coletados.
 
 Disparo proativo de notificações continua sendo uma melhoria separada. Somente nessa situação será necessário armazenar os `chat_id`s dos usuários inscritos.
