@@ -1,9 +1,10 @@
 import json
 from workers import DurableObject
+from biblioteca_contexto import ajustar_primeira_biblioteca, montar_localizacao_com_biblioteca
 from ciclo_noturno import reiniciar_se_novo_ciclo_noturno
 from expiracao_volta import expirar_confirmacao_volta_anterior
 from horarios_pico import montar_resumo_horarios
-from regras import agora_local, estado_vazio, montar_localizacao, registrar_passagem
+from regras import agora_local, estado_vazio, registrar_passagem
 from validacao_rota import validar_deslocamento
 
 
@@ -25,7 +26,7 @@ class BusState(DurableObject):
         agora = agora_local()
         estado = reiniciar_se_novo_ciclo_noturno(estado, agora)
         estado = expirar_confirmacao_volta_anterior(estado, agora)
-        estado, texto = montar_localizacao(estado, agora)
+        estado, texto = montar_localizacao_com_biblioteca(estado, agora)
         await self._salvar(estado)
         return {"texto": texto}
 
@@ -57,6 +58,7 @@ class BusState(DurableObject):
             telegram_id,
             agora=agora,
         )
+        estado = ajustar_primeira_biblioteca(estado, resultado, agora)
         await self._salvar(estado)
         return resultado
 
