@@ -33,6 +33,7 @@ AVISOS_PREDEFINIDOS = [
     "🛠️ Circular quebrou em meio ao trajeto",
     "🌧️ Tempo chuvoso, circular pode demorar mais do que o esperado",
     "🧍‍♂️🧍‍♀️ Superlotação do circular",
+    "🚐 Micro está rodando!",
     "🚌 Rota alterada temporariamente",
     "📅 Horários especiais hoje",
 ]
