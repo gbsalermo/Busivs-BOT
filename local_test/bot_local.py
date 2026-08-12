@@ -34,6 +34,12 @@ MANUAL="""📖 Dicas para uso do BUSIVS
 🤝 Informe pontos apenas quando tiver visto o veículo. Isso melhora a informação para todos."""
 
 def admin_ok(uid): return bool(ADMIN_TELEGRAM_ID and str(uid)==ADMIN_TELEGRAM_ID)
+def limitar_resumo_principal(texto, quantidade=2):
+ linhas=texto.splitlines(); marcador=f"<b>{quantidade+1}ª volta</b>"; inicio=next((i for i,l in enumerate(linhas) if marcador in l),None)
+ if inicio is None:return texto
+ rodape=next((i for i in range(inicio,len(linhas)) if linhas[i].startswith("⚠️ <b>Horários de pico</b>") or linhas[i].startswith("ℹ️ Horários do Portão 1")),None)
+ if rodape is None:return "\n".join(linhas[:inicio]).rstrip()
+ return "\n".join(linhas[:inicio]+linhas[rodape:]).strip()
 def teclado_menu(uid=None):
  l=[[InlineKeyboardButton("🚌 Onde está o ônibus?",callback_data="onde")],[InlineKeyboardButton("📍 Informar ponto atual",callback_data="local")],[InlineKeyboardButton("⏰ Próximos horários",callback_data="horarios")],[InlineKeyboardButton("📋 Listar horários",callback_data="listar_horarios")],[InlineKeyboardButton("🚐 Confirmar que micro está rodando",callback_data="micro_confirmar")]]
  if admin_ok(uid): l.append([InlineKeyboardButton("📢 Avisos",callback_data="avisos")])
@@ -88,8 +94,8 @@ async def callback(u:Update,c:ContextTypes.DEFAULT_TYPE):
   t="Valeu! Registramos o ponto 😊" if r.get("aceito") else "Obrigado pela informação 😊" if r.get("motivo")=="duplicado" else "⚠️ Não foi possível registrar esta confirmação."
   await m.reply_text(t,reply_markup=teclado_voltar()); return
  if a=="horarios":
-  t=montar_resumo_horarios()
-  if ESTADO.micro_esta_ativo(): t+="\n\n"+resumo_micro()
+  micro_ativo=ESTADO.micro_esta_ativo(); t=montar_resumo_horarios()
+  if micro_ativo: t=limitar_resumo_principal(t,2)+"\n\n"+resumo_micro()
   await m.reply_text(t,parse_mode="HTML",reply_markup=teclado_voltar()); return
  if a=="listar_horarios": await m.reply_text("📋 Qual período você quer consultar?",reply_markup=teclado_periodos()); return
  if a.startswith("periodo_"): await m.reply_text(listar_horarios_periodo(a.replace("periodo_","",1)),parse_mode="HTML",reply_markup=teclado_voltar()); return
