@@ -5,6 +5,7 @@ from workers import DurableObject
 
 from avisos_blocos import expiracao_bloco_aviso
 from biblioteca_contexto import ajustar_primeiro_ponto, montar_localizacao_com_biblioteca
+from blocos_operacionais import blocos_no_dia, fim_efetivo_bloco
 from ciclo_noturno import reiniciar_se_novo_ciclo_noturno
 from expiracao_volta import expirar_confirmacao_volta_anterior
 from horarios_pico import montar_resumo_horarios
@@ -15,6 +16,24 @@ from validacao_rota import validar_deslocamento
 
 MAX_AVISOS_ATIVOS = 3
 MAX_TAMANHO_AVISO = 280
+
+
+def _bloco_registro_ativo(estado, agora):
+    """Retorna o bloco em que confirmações colaborativas podem ser aceitas."""
+    if agora.weekday() >= 5:
+        return None
+
+    ativos = []
+    for bloco in blocos_no_dia(agora):
+        fim = fim_efetivo_bloco(bloco, estado)
+        if bloco["inicio_dt"] <= agora < fim:
+            ativos.append(bloco)
+
+    if not ativos:
+        return None
+
+    # Em sobreposição de pico, o bloco mais novo tem prioridade.
+    return max(ativos, key=lambda bloco: bloco["inicio_dt"])
 
 
 class BusState(DurableObject):
@@ -204,6 +223,23 @@ class BusState(DurableObject):
         return resultado
 
     # -------------------- PRINCIPAL --------------------
+    async def status_registro_principal(self):
+        estado = await self._carregar()
+        agora = agora_local()
+        estado_original = estado
+        estado = reiniciar_se_novo_ciclo_noturno(estado, agora)
+        estado = expirar_confirmacao_volta_anterior(estado, agora)
+        if estado != estado_original:
+            await self._salvar(estado)
+
+        bloco = _bloco_registro_ativo(estado, agora)
+        return {
+            "ativo": bloco is not None,
+            "bloco_id": bloco.get("id") if bloco else None,
+            "inicio": bloco.get("inicio") if bloco else None,
+            "ultima": bloco.get("ultima") if bloco else None,
+        }
+
     async def localizacao(self):
         estado = await self._carregar()
         agora = agora_local()
@@ -227,6 +263,13 @@ class BusState(DurableObject):
         estado_original = estado
         estado = reiniciar_se_novo_ciclo_noturno(estado, agora)
         estado = expirar_confirmacao_volta_anterior(estado, agora)
+
+        # Barreira absoluta: fora de um bloco operacional ativo não existe
+        # localização colaborativa para registrar. Admin segue a mesma regra.
+        if _bloco_registro_ativo(estado, agora) is None:
+            if estado != estado_original:
+                await self._salvar(estado)
+            return {"aceito": False, "motivo": "fora_circulacao"}
 
         # Se um bloco novo já começou e o ponto informado é compatível com ele,
         # o estado anterior é abandonado por completo. Assim histórico, sentido e
