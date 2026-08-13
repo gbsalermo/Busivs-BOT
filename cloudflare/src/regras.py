@@ -274,7 +274,7 @@ def _movimento(r):
 
 def _retorno(ret,prox):
     l=["↩️ Percurso de retorno","🚌 Pelo horário, o ônibus provavelmente está no percurso de retorno.",f"⬅️ Sentido: {ret['origem']}","📍 O ônibus ainda segue atendendo pontos durante esse percurso."]
-    if prox:l += ["","⏰ Próxima volta prevista:",f"     🕐 {prox['hora']} — {prox['origem']}"]
+    if prox:l += ["","⏰ Próxima volta programada:",f"     🕐 {prox['hora']} — {prox['origem']}"]
     l.append("ℹ️ Situação estimada pelo horário, não por confirmação de passagem."); return "\n".join(l)
 
 def _aguardando(a):
