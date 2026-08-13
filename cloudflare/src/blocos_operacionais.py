@@ -180,11 +180,7 @@ def proxima_operacao_principal(agora):
 
 
 def contexto_sem_operacao(estado, agora):
-    """Descreve períodos em que não existe bloco operacional ativo.
-
-    A janela de 5 min antes de uma saída da Garagem fica livre para o modo de
-    pré-saída já existente em regras.py.
-    """
+    """Descreve períodos em que não existe bloco operacional ativo."""
     if agora.weekday() < 5:
         ativos = []
         for bloco in blocos_no_dia(agora):
@@ -202,7 +198,11 @@ def contexto_sem_operacao(estado, agora):
         proxima.get("mesmo_dia")
         and timedelta(0) < faltam <= timedelta(minutes=JANELA_PRE_SAIDA_MINUTOS)
     ):
-        return None
+        return {
+            "tipo": "pre_saida",
+            "proxima": proxima,
+            "faltam_segundos": max(0, int(faltam.total_seconds())),
+        }
 
     if agora.weekday() >= 5:
         tipo = "fim_semana"
