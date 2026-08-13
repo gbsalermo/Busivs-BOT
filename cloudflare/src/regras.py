@@ -34,7 +34,7 @@ def _nome_origem(origem):
 
 def estimar_chegada_portao_1(hora_saida):
     m=_minutos(hora_saida)
-    pico=(_minutos("07:30")<=m<=_minutos("08:00") or _minutos("11:30")<=m<=_minutos("14:00") or _minutos("17:30")<=m<=_minutos("18:15"))
+    pico=(hora_saida not in {"13:00","13:25"} and (_minutos("07:30")<=m<=_minutos("08:00") or _minutos("11:30")<=m<=_minutos("14:00") or _minutos("17:30")<=m<=_minutos("18:15")))
     minimo,maximo=(20,25) if pico else (15,20)
     return {"inicio":_fmt_min(m+minimo),"fim":_fmt_min(m+maximo),"pico":pico,"noturno":m>=_minutos("20:00")}
 
@@ -103,7 +103,7 @@ def montar_resumo_horarios(agora=None):
         return f"🚌 <b>Circular UFRB — Principal</b>\n\nAs viagens de hoje já encerraram.\n\n🕐 <b>Primeiro horário:</b> <b>{primeiro['hora']}</b>\n🌙 <b>Último horário:</b> <b>{ultimo['hora']}</b>"
 
     ic,nome=_periodo(agora)
-    linhas=["🚌 <b>Circular UFRB — Principal</b>",f"{ic} <b>Horários — {nome}</b>",""]
+    linhas=["🚌 <b>Circular UFRB — Principal</b>",f"{ic} <b>Horários — {nome}</b>,""]
     exibidas=[]
 
     if atual is not None:
