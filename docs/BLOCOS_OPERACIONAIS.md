@@ -115,6 +115,31 @@ Exemplo do fim do dia:
 
 Nos fins de semana, em que não há operação regular cadastrada, o registro colaborativo do principal também permanece indisponível.
 
+## Resposta de localização fora dos blocos
+
+`Onde está o ônibus?` continua útil mesmo quando o registro colaborativo está fechado.
+
+Entre blocos do mesmo dia, o BUSIVS informa que o circular provavelmente está na Garagem e mostra a próxima saída. Depois do último bloco, informa que a rotina do dia encerrou e calcula a próxima saída no próximo dia útil. Aos fins de semana, informa que não há operação regular e aponta a próxima segunda-feira ou outro próximo dia útil.
+
+Exemplos:
+
+```text
+09:00
+→ provavelmente na Garagem
+→ próxima saída: 09:35 — Garagem
+
+00:30 de um dia útil
+→ rotina anterior encerrada
+→ provavelmente na Garagem
+→ próxima saída: hoje às 06:25 — Garagem
+
+sexta após o encerramento
+→ rotina encerrada
+→ próxima saída: segunda-feira às 06:25 — Garagem
+```
+
+A primeira saída oficial continua sendo **06:25**. O horário **06:20** é apenas o início da janela de pré-saída de 5 minutos. Dentro dessa janela, a resposta muda para “saída prevista em aproximadamente X min”, mas o registro colaborativo só abre quando o bloco realmente começa.
+
 ## Avisos
 
 Avisos operacionais pertencem a um único bloco e expiram no **fechamento-base** desse bloco, sem extensão por atraso.
