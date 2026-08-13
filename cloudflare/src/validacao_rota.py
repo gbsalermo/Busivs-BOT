@@ -30,19 +30,12 @@ def _ocorrencias(ponto_id):
 
 
 def _distancia_ciclica(origem, destino):
-    """Menor quantidade plausível de trechos entre dois pontos.
-
-    A rota começa e termina no RU. Para permitir uma volta seguinte, tratamos
-    a sequência como cíclica, mas não contamos duas vezes o RU duplicado nas
-    extremidades.
-    """
+    """Menor quantidade plausível de trechos entre dois pontos."""
     origens = _ocorrencias(origem)
     destinos = _ocorrencias(destino)
     if not origens or not destinos:
         return None
 
-    # O último item repete o primeiro (RU), então existem len(ROTA)-1 trechos
-    # efetivos em um ciclo completo.
     ciclo = max(1, len(ROTA) - 1)
     distancias = []
 
@@ -58,13 +51,33 @@ def _distancia_ciclica(origem, destino):
     return min(distancias) if distancias else None
 
 
-def validar_deslocamento(estado, novo_ponto, agora):
+def _ordem_linear_valida(estado, novo_ponto):
+    """Valida avanço sem permitir wrap automático para uma nova volta.
+
+    Usado no micro, cuja confirmação deve respeitar a ordem da volta atual.
+    O RU final continua sendo aceito após Torre/COTEC, mas um ponto anterior
+    como Pavilhão II não pode aparecer depois de um ponto do fim da rota.
+    """
+    resultado = (estado or {}).get("resultado_rota") or {}
+    indice_atual = resultado.get("indice_atual")
+    ponto_atual = (estado or {}).get("ponto_atual")
+
+    if indice_atual is None or not ponto_atual or ponto_atual == novo_ponto:
+        return True
+
+    destinos = _ocorrencias(novo_ponto)
+    if not destinos:
+        return True
+
+    return any(indice > indice_atual for indice in destinos)
+
+
+def validar_deslocamento(estado, novo_ponto, agora, permitir_ciclo=True):
     """Valida deslocamentos absurdos e janelas já encerradas.
 
-    Retorna ``None`` quando não há motivo para bloquear. Quando o salto é longo
-    demais para o tempo decorrido, ou quando o bloco operacional já terminou,
-    retorna um resultado compatível com o fluxo de rejeição de
-    ``registrar_passagem``.
+    ``permitir_ciclo=False`` torna a validação estrita para uma única volta,
+    impedindo que um ponto anterior seja interpretado automaticamente como
+    início de outro ciclo.
     """
     resultado_rota = (estado or {}).get("resultado_rota") or {}
     if resultado_rota.get(MARCADOR_FIM_BLOCO):
@@ -74,6 +87,14 @@ def validar_deslocamento(estado, novo_ponto, agora):
             "origem": "Garagem",
             "proxima": resultado_rota.get("proxima"),
             "fim_previsto": resultado_rota.get("fim_previsto"),
+        }
+
+    if not permitir_ciclo and not _ordem_linear_valida(estado, novo_ponto):
+        return {
+            "aceito": False,
+            "motivo": "ordem_rota_invalida",
+            "ponto_anterior": (estado or {}).get("ponto_atual"),
+            "ponto_novo": novo_ponto,
         }
 
     ponto_atual = estado.get("ponto_atual")
