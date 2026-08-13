@@ -98,6 +98,23 @@ sem nova saída oficial entre as confirmações
 
 Na última volta do dia não existe nova saída posterior. Portanto, depois do encerramento da volta das 22:30, a rota não pode reiniciar artificialmente.
 
+## Janela de registro colaborativo
+
+Uma confirmação de ponto do Circular Principal só pode ser aceita enquanto existir um bloco operacional ativo.
+
+Fora dessas janelas, o BUSIVS não abre o seletor de pontos e o backend também rejeita callbacks antigos ou chamadas diretas com `fora_circulacao`. A regra vale igualmente para usuários comuns e administradores.
+
+Exemplo do fim do dia:
+
+```text
+22:30 — início do último bloco
+23:00 — fechamento-base
+23:00 até o início do primeiro bloco do próximo dia
+→ registro de ponto indisponível
+```
+
+Nos fins de semana, em que não há operação regular cadastrada, o registro colaborativo do principal também permanece indisponível.
+
 ## Avisos
 
 Avisos operacionais pertencem a um único bloco e expiram no **fechamento-base** desse bloco, sem extensão por atraso.
