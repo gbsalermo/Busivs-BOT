@@ -8,23 +8,35 @@ Um bloco operacional representa um ciclo de trabalho do veículo que executa uma
 
 A Garagem não é um ponto colaborativo da rota. O retorno à Garagem é inferido pelo horário quando não existe confirmação real suficiente.
 
-Existem duas exceções operacionais conhecidas: **09:35** e **15:35**. Embora a definição original desses horários previsse saída da Garagem, na prática essas voltas normalmente saem do **RU / Residências**. Por isso o BUSIVS usa RU como origem dessas duas referências, mantendo 10:00 e 16:00 como saídas de Garagem dentro dos respectivos conjuntos.
+Nos blocos **09:35–10:00** e **15:35–16:00**, a primeira referência sai da Garagem e a segunda sai do RU / Residências. A volta das 10:00 ou 16:00 é a última volta do respectivo bloco; depois dela o veículo retorna à Garagem e encerra o bloco.
 
 ## Blocos do Circular Principal
 
 | Bloco | Início | Última volta de referência | Fechamento-base estimado |
 |---|---:|---:|---:|
 | Manhã inicial | 06:25 | 07:55 | 08:35 |
-| Manhã intermediário* | 09:35 | 10:00 | 10:35 |
+| Manhã intermediário | 09:35 | 10:00 | 10:35 |
 | Almoço | 11:30 | 12:20 | 13:00 |
 | Início da tarde | 13:00 | 14:00 | 14:40 |
-| Tarde intermediário* | 15:35 | 16:00 | 16:35 |
+| Tarde intermediário | 15:35 | 16:00 | 16:35 |
 | Fim da tarde | 17:30 | 18:15 | 18:55 |
 | Noite 1 | 20:40 | 20:40 | 21:10 |
 | Noite 2 | 21:40 | 21:40 | 22:10 |
 | Noite 3 | 22:30 | 22:30 | 23:00 |
 
-`*` 09:35 e 15:35 são exceções cujo primeiro horário normalmente parte do RU.
+Fluxos especiais:
+
+```text
+09:35 — saída da Garagem
+10:00 — saída do RU / última volta
+→ retorno à Garagem
+→ encerra o bloco
+
+15:35 — saída da Garagem
+16:00 — saída do RU / última volta
+→ retorno à Garagem
+→ encerra o bloco
+```
 
 Os horários 20:40, 21:40 e 22:30 pertencem ao mesmo turno noturno, mas são três blocos independentes: cada um começa e encerra sua operação separadamente.
 
