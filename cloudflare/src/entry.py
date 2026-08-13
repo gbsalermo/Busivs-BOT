@@ -39,7 +39,7 @@ Mostra as próximas referências do circular principal. Quando o micro estiver e
 📋 Listar horários
 Consulta os horários oficiais do circular principal por período.
 
-🚐 Confirmar que micro está rodando
+🚐 Confirmar que o micro está rodando
 Use somente quando você realmente vir o micro-ônibus de reforço operando. Depois de confirmado, o botão ficará verde e não precisará ser confirmado novamente.
 
 📢 Avisos operacionais
@@ -57,7 +57,7 @@ def teclado_voltar():
 
 
 def teclado_menu(micro_ativo=False, admin=False):
-    micro = {"text": "🚐 Micro em operação ✅", "callback_data": "micro_ativo"} if micro_ativo else {"text": "🚐 Confirmar que micro está rodando", "callback_data": "micro_confirmar"}
+    micro = {"text": "🚐 Micro em operação ✅", "callback_data": "micro_ativo"} if micro_ativo else {"text": "🚐 Confirmar que o micro está rodando", "callback_data": "micro_confirmar"}
     linhas = [
         [{"text": "🚌 Onde está o ônibus?", "callback_data": "onde"}],
         [{"text": "📍 Informar ponto atual", "callback_data": "local"}],
