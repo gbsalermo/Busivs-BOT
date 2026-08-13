@@ -3,6 +3,15 @@ from regras import _minutos, _proximo, _ultima_saida_recente, estimar_chegada_po
 
 
 MARCADOR_FIM_BLOCO = "operacao_encerrada_bloco"
+DIAS_SEMANA = [
+    "segunda-feira",
+    "terça-feira",
+    "quarta-feira",
+    "quinta-feira",
+    "sexta-feira",
+    "sábado",
+    "domingo",
+]
 
 
 def _resultado_para_indice(indice, sentido, ponto_id="biblioteca", estimado_por_horario=True):
@@ -123,6 +132,64 @@ def _texto_bloco_encerrado(resultado):
     linhas += [
         "",
         "ℹ️ Situação estimada pelo horário, sem confirmação recente de passagem.",
+    ]
+    return "\n".join(linhas)
+
+
+def texto_sem_operacao(contexto):
+    """Monta a resposta do principal quando não há bloco ativo."""
+    tipo = contexto.get("tipo")
+    proxima = contexto.get("proxima") or {}
+    quando = proxima.get("quando")
+    viagem = proxima.get("viagem") or {}
+    hora = viagem.get("hora") or (quando.strftime("%H:%M") if quando else "--:--")
+    origem = viagem.get("origem", "Garagem")
+
+    if tipo == "pre_saida":
+        segundos = max(0, int(contexto.get("faltam_segundos", 0)))
+        minutos = max(1, (segundos + 59) // 60)
+        return (
+            "🅿️ Ônibus provavelmente na Garagem.\n\n"
+            f"⏰ Saída prevista em aproximadamente {minutos} min.\n"
+            f"🕐 Volta das {hora} — {origem}\n\n"
+            "ℹ️ Horário oficial; pode haver atraso na saída."
+        )
+
+    if tipo == "entre_blocos":
+        linhas = [
+            "🅿️ O circular provavelmente está na Garagem.",
+            "🚌 O bloco anterior já encerrou.",
+        ]
+    elif tipo == "antes_primeiro":
+        linhas = [
+            "🌙 A rotina anterior do circular já encerrou.",
+            "🅿️ O ônibus provavelmente está na Garagem.",
+        ]
+    elif tipo == "fim_semana":
+        linhas = [
+            "📅 O circular não possui operação regular aos fins de semana.",
+            "🅿️ O ônibus provavelmente está na Garagem.",
+        ]
+    else:
+        linhas = [
+            "🌙 A rotina do circular de hoje já encerrou.",
+            "🅿️ O ônibus provavelmente está na Garagem.",
+        ]
+
+    linhas += ["", "⏰ Próxima saída prevista:"]
+
+    if quando:
+        if proxima.get("mesmo_dia"):
+            linhas.append(f"     🕐 Hoje às {hora} — {origem}")
+        else:
+            dia = DIAS_SEMANA[quando.weekday()]
+            linhas.append(f"     🕐 {dia}, {quando.strftime('%d/%m')} às {hora} — {origem}")
+    else:
+        linhas.append(f"     🕐 {hora} — {origem}")
+
+    linhas += [
+        "",
+        "ℹ️ Situação estimada pela rotina oficial; não há localização colaborativa ativa neste período.",
     ]
     return "\n".join(linhas)
 
