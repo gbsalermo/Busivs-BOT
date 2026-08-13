@@ -4,8 +4,8 @@ from datetime import datetime
 from workers import DurableObject
 
 from avisos_blocos import expiracao_bloco_aviso
-from biblioteca_contexto import ajustar_primeiro_ponto, montar_localizacao_com_biblioteca
-from blocos_operacionais import blocos_no_dia, fim_efetivo_bloco
+from biblioteca_contexto import ajustar_primeiro_ponto, montar_localizacao_com_biblioteca, texto_sem_operacao
+from blocos_operacionais import blocos_no_dia, contexto_sem_operacao, fim_efetivo_bloco
 from ciclo_noturno import reiniciar_se_novo_ciclo_noturno
 from expiracao_volta import expirar_confirmacao_volta_anterior
 from horarios_pico import montar_resumo_horarios
@@ -245,6 +245,12 @@ class BusState(DurableObject):
         agora = agora_local()
         estado = reiniciar_se_novo_ciclo_noturno(estado, agora)
         estado = expirar_confirmacao_volta_anterior(estado, agora)
+
+        sem_operacao = contexto_sem_operacao(estado, agora)
+        if sem_operacao is not None:
+            await self._salvar(estado)
+            return {"texto": texto_sem_operacao(sem_operacao)}
+
         estado, texto = montar_localizacao_com_biblioteca(estado, agora)
         await self._salvar(estado)
         return {"texto": texto}
