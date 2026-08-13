@@ -237,11 +237,12 @@ def texto_bloqueio_seguranca(resultado):
     return "🛡️ Esta confirmação foi ignorada pela proteção temporária do BUSIVS."
 
 
-async def enviar_menu(mensagem, uid=None):
+async def enviar_menu(mensagem, uid=None, mostrar_avisos=False):
     await mensagem.reply_text("🚌 BUSIVS BOT — ALPHA LOCAL\n\nEscolha uma opção:", reply_markup=teclado_menu(uid))
-    avisos = ESTADO.listar_avisos()
-    if avisos:
-        await mensagem.reply_text(texto_avisos(avisos))
+    if mostrar_avisos:
+        avisos = ESTADO.listar_avisos()
+        if avisos:
+            await mensagem.reply_text(texto_avisos(avisos))
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -250,7 +251,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.effective_message.reply_text(
         "👋 Bem-vindo ao BUSIVS!\n\nEm caso de dúvidas, clique em ❓ Ajuda ou fale com o administrador."
     )
-    await enviar_menu(update.effective_message, update.effective_user.id if update.effective_user else None)
+    await enviar_menu(
+        update.effective_message,
+        update.effective_user.id if update.effective_user else None,
+        mostrar_avisos=True,
+    )
 
 
 async def seguranca_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
