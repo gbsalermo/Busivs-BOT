@@ -51,6 +51,22 @@ def _distancia_ciclica(origem, destino):
     return min(distancias) if distancias else None
 
 
+def _indice_atual_linear(estado):
+    resultado = (estado or {}).get("resultado_rota") or {}
+    indice = resultado.get("indice_atual")
+    if indice is not None:
+        return indice
+
+    # Na primeira confirmação ainda pode não existir resultado_rota. Quando o
+    # ponto aparece uma única vez na rota, ele próprio define a posição atual.
+    ponto_atual = (estado or {}).get("ponto_atual")
+    ocorrencias = _ocorrencias(ponto_atual) if ponto_atual else []
+    if len(ocorrencias) == 1:
+        return ocorrencias[0]
+
+    return None
+
+
 def _ordem_linear_valida(estado, novo_ponto):
     """Valida avanço sem permitir wrap automático para uma nova volta.
 
@@ -58,11 +74,12 @@ def _ordem_linear_valida(estado, novo_ponto):
     O RU final continua sendo aceito após Torre/COTEC, mas um ponto anterior
     como Pavilhão II não pode aparecer depois de um ponto do fim da rota.
     """
-    resultado = (estado or {}).get("resultado_rota") or {}
-    indice_atual = resultado.get("indice_atual")
     ponto_atual = (estado or {}).get("ponto_atual")
+    if not ponto_atual or ponto_atual == novo_ponto:
+        return True
 
-    if indice_atual is None or not ponto_atual or ponto_atual == novo_ponto:
+    indice_atual = _indice_atual_linear(estado)
+    if indice_atual is None:
         return True
 
     destinos = _ocorrencias(novo_ponto)
