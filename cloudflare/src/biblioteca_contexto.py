@@ -158,7 +158,7 @@ def texto_sem_operacao(contexto):
     if tipo == "entre_blocos":
         linhas = [
             "🅿️ O circular provavelmente está na Garagem.",
-            "🚌 O bloco anterior já encerrou.",
+            "🚌 A volta anterior já encerrou.",
         ]
     elif tipo == "antes_primeiro":
         linhas = [
