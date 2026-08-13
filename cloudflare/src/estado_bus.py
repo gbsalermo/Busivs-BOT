@@ -8,6 +8,7 @@ from biblioteca_contexto import ajustar_primeira_biblioteca, montar_localizacao_
 from ciclo_noturno import reiniciar_se_novo_ciclo_noturno
 from expiracao_volta import expirar_confirmacao_volta_anterior
 from horarios_pico import montar_resumo_horarios
+from micro import janela_operacao_micro_atual, micro_pode_operar_agora
 from regras import agora_local, estado_vazio, registrar_passagem
 from validacao_rota import validar_deslocamento
 
@@ -98,6 +99,7 @@ class BusState(DurableObject):
         if indice < 0 or indice >= len(avisos):
             return {"ok": False, "avisos": avisos}
         removido = avisos.pop(indice)
+        self.dados = None
         await self._salvar_avisos(avisos)
         if not avisos:
             await self.ctx.storage.delete("avisos_expiram_em")
@@ -129,14 +131,21 @@ class BusState(DurableObject):
     async def _expirar_micro_se_necessario(self):
         if not await self.ctx.storage.get("micro_ativo"):
             return
+
+        agora = agora_local()
+        if not micro_pode_operar_agora(agora):
+            await self.desativar_micro()
+            return
+
         expira_em = await self.ctx.storage.get("micro_expira_em")
         if not expira_em:
             return
         try:
             limite = datetime.fromisoformat(str(expira_em))
         except Exception:
+            await self.desativar_micro()
             return
-        if agora_local() >= limite:
+        if agora >= limite:
             await self.desativar_micro()
 
     async def micro_status(self):
@@ -151,15 +160,20 @@ class BusState(DurableObject):
         await self._expirar_micro_se_necessario()
         if await self.ctx.storage.get("micro_ativo"):
             return {"ok": True, "ja_ativo": True, **(await self.micro_status())}
+
         agora = agora_local()
+        janela = janela_operacao_micro_atual(agora)
+        if janela is None:
+            return {
+                "ok": False,
+                "ja_ativo": False,
+                "motivo": "fora_horario_micro",
+            }
+
         await self.ctx.storage.put("micro_ativo", True)
         await self.ctx.storage.put("micro_ativado_em", agora.isoformat())
-        minutos = agora.hour * 60 + agora.minute
-        if 7 * 60 + 25 <= minutos < 13 * 60:
-            expira = agora.replace(hour=13, minute=0, second=0, microsecond=0)
-            await self.ctx.storage.put("micro_expira_em", expira.isoformat())
-        else:
-            await self.ctx.storage.delete("micro_expira_em")
+        await self.ctx.storage.put("micro_expira_em", janela["fim"].isoformat())
+        await self.ctx.storage.delete("estado_micro")
         return {"ok": True, "ja_ativo": False, **(await self.micro_status())}
 
     async def desativar_micro(self):
@@ -185,7 +199,7 @@ class BusState(DurableObject):
             return {"aceito": False, "motivo": "micro_inativo"}
         estado = await self._carregar_chave_estado("estado_micro")
         agora = agora_local()
-        bloqueio = validar_deslocamento(estado, ponto_id, agora)
+        bloqueio = validar_deslocamento(estado, ponto_id, agora, permitir_ciclo=False)
         if bloqueio is not None:
             return bloqueio
         estado, resultado = registrar_passagem(estado, ponto_id, telegram_id, agora=agora)
