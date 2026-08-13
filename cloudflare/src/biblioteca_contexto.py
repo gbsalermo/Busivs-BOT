@@ -5,11 +5,11 @@ from regras import _minutos, _proximo, _ultima_saida_recente, estimar_chegada_po
 MARCADOR_FIM_BLOCO = "operacao_encerrada_bloco"
 
 
-def _resultado_para_indice(indice, sentido, estimado_por_horario=True):
+def _resultado_para_indice(indice, sentido, ponto_id="biblioteca", estimado_por_horario=True):
     return {
         "ponto_anterior": None,
-        "ponto_atual": PONTOS["biblioteca"]["nome"],
-        "ponto_atual_id": "biblioteca",
+        "ponto_atual": PONTOS[ponto_id]["nome"],
+        "ponto_atual_id": ponto_id,
         "indice_atual": indice,
         "sentido": sentido,
         "proximo": _proximo(indice),
@@ -25,13 +25,7 @@ def _indice_biblioteca_por_sentido(sentido):
 
 
 def ajustar_primeira_biblioteca(estado, resultado_registro, agora):
-    """Resolve Biblioteca quando ela e a primeira confirmacao da sessao.
-
-    Antes da janela prevista do Portao 1, assume a ocorrencia de ida (RUA).
-    Depois da janela, assume a ocorrencia de retorno (RU).
-    Dentro da propria janela do Portao 1, mantem o sentido como ambiguo ate
-    surgir uma segunda confirmacao.
-    """
+    """Resolve Biblioteca quando ela é a primeira confirmação da sessão."""
     if not resultado_registro.get("aceito"):
         return estado
     if not resultado_registro.get("primeiro_registro"):
@@ -74,6 +68,38 @@ def ajustar_primeira_biblioteca(estado, resultado_registro, agora):
     resultado["saida_referencia"] = saida["hora"]
     resultado["janela_portao_1"] = [previsao["inicio"], previsao["fim"]]
     estado["resultado_rota"] = resultado
+    return estado
+
+
+def ajustar_primeiro_ponto(estado, resultado_registro, agora):
+    """Define o sentido imediatamente quando o primeiro ponto é inequívoco.
+
+    Biblioteca continua recebendo tratamento temporal porque aparece na ida e no
+    retorno. RU também permanece sem sentido forçado porque representa tanto o
+    início quanto o fim de uma volta. Nos demais pontos, a posição na rota já é
+    suficiente: por exemplo Portão 2 implica ida/RUA e Portão 1 implica retorno/RU.
+    """
+    if not resultado_registro.get("aceito") or not resultado_registro.get("primeiro_registro"):
+        return estado
+
+    ponto_id = estado.get("ponto_atual")
+    if ponto_id == "biblioteca":
+        return ajustar_primeira_biblioteca(estado, resultado_registro, agora)
+    if ponto_id == "ru":
+        return estado
+
+    ocorrencias = [i for i, item in enumerate(ROTA) if item["ponto_id"] == ponto_id]
+    if len(ocorrencias) != 1:
+        return estado
+
+    indice = ocorrencias[0]
+    item = ROTA[indice]
+    estado["resultado_rota"] = _resultado_para_indice(
+        indice,
+        item["sentido_apos"],
+        ponto_id=ponto_id,
+        estimado_por_horario=False,
+    )
     return estado
 
 
