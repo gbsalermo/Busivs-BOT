@@ -14,6 +14,45 @@ def _horarios_hoje(agora=None):
     return [(_momento(item["hora"], agora), item) for item in HORARIOS.get("micro", [])]
 
 
+def janelas_operacao_micro(agora=None):
+    """Agrupa as referencias oficiais do micro em blocos continuos."""
+    agora = agora or agora_local()
+    intervalos = []
+    for inicio, item in _horarios_hoje(agora):
+        fim = _momento(item.get("fim", item["hora"]), agora)
+        intervalos.append((inicio, fim))
+
+    if not intervalos:
+        return []
+
+    intervalos.sort(key=lambda x: x[0])
+    blocos = []
+    inicio_bloco, fim_bloco = intervalos[0]
+
+    for inicio, fim in intervalos[1:]:
+        if inicio <= fim_bloco:
+            if fim > fim_bloco:
+                fim_bloco = fim
+            continue
+        blocos.append({"inicio": inicio_bloco, "fim": fim_bloco})
+        inicio_bloco, fim_bloco = inicio, fim
+
+    blocos.append({"inicio": inicio_bloco, "fim": fim_bloco})
+    return blocos
+
+
+def janela_operacao_micro_atual(agora=None):
+    agora = agora or agora_local()
+    for bloco in janelas_operacao_micro(agora):
+        if bloco["inicio"] <= agora < bloco["fim"]:
+            return bloco
+    return None
+
+
+def micro_pode_operar_agora(agora=None):
+    return janela_operacao_micro_atual(agora) is not None
+
+
 def volta_micro_atual(agora=None):
     agora = agora or agora_local()
     candidatos = []
