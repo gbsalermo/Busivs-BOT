@@ -8,6 +8,7 @@ TOLERANCIA_RETORNO_NOITE_MINUTOS = 10
 EXTENSAO_PICO_POR_CONFIRMACAO_MINUTOS = 10
 SOBREPOSICAO_MAXIMA_PROXIMO_BLOCO_MINUTOS = 5
 JANELA_CONFIRMACAO_PICO_MINUTOS = 15
+JANELA_PRE_SAIDA_MINUTOS = 5
 
 
 def _momento(hora, referencia):
@@ -145,3 +146,73 @@ def contexto_bloco_encerrado(estado, agora):
         }
 
     return None
+
+
+def _proximo_dia_util(referencia):
+    dia = referencia + timedelta(days=1)
+    while dia.weekday() >= 5:
+        dia += timedelta(days=1)
+    return dia
+
+
+def proxima_operacao_principal(agora):
+    """Retorna a próxima abertura de bloco em um dia útil."""
+    if agora.weekday() < 5:
+        futuros = [b for b in blocos_no_dia(agora) if b["inicio_dt"] > agora]
+        if futuros:
+            bloco = min(futuros, key=lambda b: b["inicio_dt"])
+            return {
+                "bloco": bloco,
+                "quando": bloco["inicio_dt"],
+                "viagem": _viagem_por_hora(bloco["inicio"]),
+                "mesmo_dia": True,
+            }
+
+    proximo_dia = _proximo_dia_util(agora)
+    primeiro = BLOCOS_PRINCIPAL[0]
+    quando = _momento(primeiro["inicio"], proximo_dia)
+    return {
+        "bloco": {**primeiro, "inicio_dt": quando},
+        "quando": quando,
+        "viagem": _viagem_por_hora(primeiro["inicio"]),
+        "mesmo_dia": False,
+    }
+
+
+def contexto_sem_operacao(estado, agora):
+    """Descreve períodos em que não existe bloco operacional ativo.
+
+    A janela de 5 min antes de uma saída da Garagem fica livre para o modo de
+    pré-saída já existente em regras.py.
+    """
+    if agora.weekday() < 5:
+        ativos = []
+        for bloco in blocos_no_dia(agora):
+            fim = fim_efetivo_bloco(bloco, estado)
+            if bloco["inicio_dt"] <= agora < fim:
+                ativos.append(bloco)
+        if ativos:
+            return None
+
+    proxima = proxima_operacao_principal(agora)
+    quando = proxima["quando"]
+    faltam = quando - agora
+
+    if (
+        proxima.get("mesmo_dia")
+        and timedelta(0) < faltam <= timedelta(minutes=JANELA_PRE_SAIDA_MINUTOS)
+    ):
+        return None
+
+    if agora.weekday() >= 5:
+        tipo = "fim_semana"
+    elif proxima.get("mesmo_dia"):
+        primeiro_inicio = _momento(BLOCOS_PRINCIPAL[0]["inicio"], agora)
+        tipo = "antes_primeiro" if agora < primeiro_inicio else "entre_blocos"
+    else:
+        tipo = "fim_dia"
+
+    return {
+        "tipo": tipo,
+        "proxima": proxima,
+    }
