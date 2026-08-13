@@ -4,25 +4,29 @@ Este documento registra a regra usada em produção para separar as voltas do Ci
 
 ## Conceito
 
-Um bloco operacional representa um ciclo de trabalho do veículo que começa na Garagem, executa uma ou mais voltas e termina quando o ônibus retorna plausivelmente à Garagem após a última volta do conjunto.
+Um bloco operacional representa um ciclo de trabalho do veículo que executa uma ou mais voltas e termina quando o ônibus retorna plausivelmente à Garagem após a última volta do conjunto.
 
 A Garagem não é um ponto colaborativo da rota. O retorno à Garagem é inferido pelo horário quando não existe confirmação real suficiente.
+
+Existem duas exceções operacionais conhecidas: **09:35** e **15:35**. Embora a definição original desses horários previsse saída da Garagem, na prática essas voltas normalmente saem do **RU / Residências**. Por isso o BUSIVS usa RU como origem dessas duas referências, mantendo 10:00 e 16:00 como saídas de Garagem dentro dos respectivos conjuntos.
 
 ## Blocos do Circular Principal
 
 | Bloco | Início | Última volta de referência | Fechamento-base estimado |
 |---|---:|---:|---:|
 | Manhã inicial | 06:25 | 07:55 | 08:35 |
-| Manhã intermediário | 09:35 | 10:00 | 10:35 |
+| Manhã intermediário* | 09:35 | 10:00 | 10:35 |
 | Almoço | 11:30 | 12:20 | 13:00 |
 | Início da tarde | 13:00 | 14:00 | 14:40 |
-| Tarde intermediário | 15:35 | 16:00 | 16:35 |
+| Tarde intermediário* | 15:35 | 16:00 | 16:35 |
 | Fim da tarde | 17:30 | 18:15 | 18:55 |
 | Noite 1 | 20:40 | 20:40 | 21:10 |
 | Noite 2 | 21:40 | 21:40 | 22:10 |
 | Noite 3 | 22:30 | 22:30 | 23:00 |
 
-Os horários 20:40, 21:40 e 22:30 pertencem ao mesmo turno noturno, mas são três blocos independentes: cada um começa e encerra na Garagem.
+`*` 09:35 e 15:35 são exceções cujo primeiro horário normalmente parte do RU.
+
+Os horários 20:40, 21:40 e 22:30 pertencem ao mesmo turno noturno, mas são três blocos independentes: cada um começa e encerra sua operação separadamente.
 
 ## Cálculo do fechamento
 
@@ -39,33 +43,37 @@ Quando a última volta do bloco é de pico, uma confirmação válida feita pert
 
 Quando já existe um bloco seguinte, o estado antigo pode sobreviver no máximo 5 minutos após a abertura desse novo bloco. Isso permite absorver atraso real sem deixar a volta anterior contaminar indefinidamente a nova operação.
 
-Uma confirmação realizada depois da nova saída oficial pertence naturalmente ao novo contexto e não deve ser apagada pela tolerância aplicada à volta anterior.
+Se surgir uma confirmação compatível com o bloco novo depois que ele começou, o BUSIVS abandona o histórico do bloco anterior antes de registrar o novo ponto. A nova confirmação passa a ser a primeira referência limpa daquele bloco.
 
 Exemplo do almoço:
 
 ```text
 12:20 — última volta do bloco
+12:50 — confirmação real mostra atraso
 13:00 — fechamento-base / início do bloco seguinte
+13:02 — Pavilhão I compatível com a nova saída
 
-se houver confirmação válida muito recente da volta anterior:
-→ tolerância máxima até aproximadamente 13:05
-
-se surgir confirmação compatível com a saída de 13:00:
-→ o novo bloco passa a ter prioridade
+→ abandona histórico do bloco anterior
+→ Pavilhão I vira primeira confirmação do bloco das 13:00
 ```
 
-## Ordem da rota
+RU sozinho não força essa troca porque pode representar fim da volta anterior ou espera. Biblioteca pode iniciar o novo contexto, mas continua com tratamento especial de sentido por aparecer na ida e no retorno.
 
-No Circular Principal, um ponto anterior na sequência da rota só pode representar uma nova volta se uma nova saída oficial tiver ocorrido depois da última confirmação.
+## Sentido da rota
 
-Exemplo válido:
+Fora da Biblioteca, a maioria dos pontos já determina naturalmente o sentido pela própria posição na rota.
+
+Exemplos:
 
 ```text
-volta anterior termina
-06:50 — nova saída oficial
-Pavilhão I / Biblioteca / Pavilhão II
-→ pode representar a nova volta
+Portão 2 → sentido RUA
+Portão 1 → sentido RU
+Torre / COTEC → sentido RU
 ```
+
+Se um ponto inequívoco for a primeira confirmação do bloco, o BUSIVS já usa essa posição para definir sentido e próximo ponto. RU permanece ambíguo e Biblioteca mantém sua regra contextual específica.
+
+No Circular Principal, um ponto anterior na sequência da rota só pode representar uma nova volta se uma nova saída oficial tiver ocorrido depois da última confirmação.
 
 Exemplo inválido:
 
@@ -80,7 +88,9 @@ Na última volta do dia não existe nova saída posterior. Portanto, depois do e
 
 ## Avisos
 
-Avisos operacionais pertencem a um único bloco e expiram no fechamento-base desse bloco, sem exceção.
+Avisos operacionais pertencem a um único bloco e expiram no **fechamento-base** desse bloco, sem extensão por atraso.
+
+Mesmo que uma confirmação real mantenha temporariamente o estado da localização em horário de pico, o aviso encerra no horário-base. Se a ocorrência continuar, o administrador publica o aviso novamente.
 
 Consequência no turno noturno:
 
@@ -105,6 +115,12 @@ As regras compartilhadas de fechamento ficam em:
 
 ```text
 cloudflare/src/blocos_operacionais.py
+```
+
+A transição limpa entre o estado antigo e uma confirmação compatível do bloco novo fica em:
+
+```text
+cloudflare/src/transicao_bloco.py
 ```
 
 Módulos de expiração, avisos e ciclos noturnos devem usar essa definição central e não criar conceitos paralelos de bloco.
