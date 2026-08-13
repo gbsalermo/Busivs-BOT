@@ -16,6 +16,7 @@ from regras import agora_local, estado_vazio, listar_horarios_periodo, montar_lo
 from validacao_rota import validar_deslocamento
 from estado_local import EstadoLocal
 from micro import proxima_volta_micro, resumo_micro, volta_micro_atual
+from seguranca_local import SegurancaColaborativa
 
 load_dotenv(BASE_DIR / ".env")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -24,6 +25,7 @@ if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("TELEGRAM_BOT_TOKEN nao configurado no .env")
 
 ESTADO = EstadoLocal()
+SEGURANCA = SegurancaColaborativa()
 
 AVISOS_PREDEFINIDOS = [
     "🚪 Portão 1 fechado",
@@ -221,6 +223,20 @@ def texto_avisos(avisos, contador=False):
     return "\n".join([f"📢 Avisos ativos{sufixo}", ""] + [f"• {aviso}" for aviso in avisos])
 
 
+def texto_bloqueio_seguranca(resultado):
+    motivo = resultado.get("motivo")
+    espera = resultado.get("aguarde_segundos", 1)
+    if motivo == "ponto_ja_confirmado":
+        return "Obrigado pela informação 😊\n\n📍 Esse ponto já foi confirmado há poucos segundos, então não foi necessário atualizar o estado novamente."
+    if motivo == "rapido_demais":
+        return f"⏳ Aguarde cerca de {espera}s antes de enviar outra confirmação."
+    if motivo == "conflito_usuario":
+        return "🛡️ Muitas confirmações de pontos diferentes foram enviadas em sequência. As marcações deste usuário foram pausadas temporariamente para proteger o estado do circular."
+    if motivo in {"muitas_tentativas", "cooldown"}:
+        return f"🛡️ Muitas confirmações foram enviadas em pouco tempo. Aguarde aproximadamente {espera}s antes de tentar novamente."
+    return "🛡️ Esta confirmação foi ignorada pela proteção temporária do BUSIVS."
+
+
 async def enviar_menu(mensagem, uid=None):
     await mensagem.reply_text("🚌 BUSIVS BOT — ALPHA LOCAL\n\nEscolha uma opção:", reply_markup=teclado_menu(uid))
     avisos = ESTADO.listar_avisos()
@@ -235,6 +251,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👋 Bem-vindo ao BUSIVS!\n\nEm caso de dúvidas, clique em ❓ Ajuda ou fale com o administrador."
     )
     await enviar_menu(update.effective_message, update.effective_user.id if update.effective_user else None)
+
+
+async def seguranca_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.effective_message or not update.effective_user or not admin_ok(update.effective_user.id):
+        return
+    dados = SEGURANCA.resumo()
+    await update.effective_message.reply_text(
+        "🛡️ Segurança — ALPHA LOCAL\n\n"
+        f"Usuários monitorados nesta execução: {dados['usuarios_monitorados']}\n"
+        f"Usuários em cooldown: {dados['usuarios_em_cooldown']}\n"
+        f"Pontos com confirmação recente: {dados['pontos_recentes']}\n\n"
+        "ℹ️ Esses dados são temporários e somem ao reiniciar o bot."
+    )
 
 
 async def texto_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -323,13 +352,23 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if acao.startswith("local_principal_") or acao.startswith("local_micro_"):
         veiculo = "micro" if acao.startswith("local_micro_") else "principal"
         ponto = acao.replace(f"local_{veiculo}_", "", 1)
-        estado = ESTADO.obter_estado(estado_vazio, veiculo)
         agora = agora_local()
+
+        protecao = SEGURANCA.verificar(uid, veiculo, ponto, agora)
+        if not protecao.get("permitido"):
+            await mensagem.reply_text(texto_bloqueio_seguranca(protecao), reply_markup=teclado_voltar())
+            return
+
+        estado = ESTADO.obter_estado(estado_vazio, veiculo)
         bloqueio = validar_deslocamento(estado, ponto, agora, ESTADO.listar_avisos())
         resultado = bloqueio
         if resultado is None:
             estado, resultado = registrar_passagem(estado, ponto, uid, agora=agora)
             ESTADO.salvar_estado(estado, veiculo)
+
+        if resultado.get("aceito"):
+            SEGURANCA.registrar_confirmacao(veiculo, ponto, agora)
+
         texto = "Valeu! Registramos o ponto 😊" if resultado.get("aceito") else "Obrigado pela informação 😊" if resultado.get("motivo") == "duplicado" else "⚠️ Não foi possível registrar esta confirmação."
         await mensagem.reply_text(texto, reply_markup=teclado_voltar())
         return
@@ -392,6 +431,7 @@ def main():
     print("BUSIVS ALPHA LOCAL iniciado por polling.")
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("seguranca", seguranca_status))
     app.add_handler(CallbackQueryHandler(callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, texto_admin))
     app.run_polling(drop_pending_updates=True)
