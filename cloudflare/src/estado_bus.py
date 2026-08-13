@@ -228,7 +228,12 @@ class BusState(DurableObject):
         estado = expirar_confirmacao_volta_anterior(estado, agora)
         if estado != estado_original:
             await self._salvar(estado)
-        bloqueio = validar_deslocamento(estado, ponto_id, agora)
+        bloqueio = validar_deslocamento(
+            estado,
+            ponto_id,
+            agora,
+            exigir_nova_saida_para_ciclo=True,
+        )
         if bloqueio is not None:
             return bloqueio
         estado, resultado = registrar_passagem(estado, ponto_id, telegram_id, agora=agora)
