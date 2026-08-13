@@ -12,6 +12,26 @@ HORARIOS = {
     ]
 }
 
+# Bloco operacional = ciclo que começa na Garagem e termina quando a última
+# volta do conjunto retorna plausivelmente à Garagem. Alguns blocos possuem
+# mais de uma referência cuja origem também é Garagem (09:35/10:00 e
+# 15:35/16:00), por isso os limites são declarados explicitamente em vez de
+# inferidos apenas pela origem ou pela distância entre horários.
+#
+# Os horários 20:40, 21:40 e 22:30 pertencem ao mesmo turno noturno, mas são
+# três blocos independentes: cada um sai e retorna à Garagem.
+BLOCOS_PRINCIPAL = [
+    {"id":"manha_inicial","inicio":"06:25","ultima":"07:55"},
+    {"id":"manha_intermediario","inicio":"09:35","ultima":"10:00"},
+    {"id":"almoco","inicio":"11:30","ultima":"12:20"},
+    {"id":"inicio_tarde","inicio":"13:00","ultima":"14:00"},
+    {"id":"tarde_intermediario","inicio":"15:35","ultima":"16:00"},
+    {"id":"fim_tarde","inicio":"17:30","ultima":"18:15"},
+    {"id":"noite_2040","inicio":"20:40","ultima":"20:40"},
+    {"id":"noite_2140","inicio":"21:40","ultima":"21:40"},
+    {"id":"noite_2230","inicio":"22:30","ultima":"22:30"},
+]
+
 PONTOS_LISTA = [
     {"id":"ru","nome":"RU / Residências","opcional":False},
     {"id":"fitotecnia","nome":"Fitotecnia","opcional":False},
