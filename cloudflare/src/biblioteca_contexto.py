@@ -2,6 +2,9 @@ from dados import PONTOS, ROTA
 from regras import _minutos, _proximo, _ultima_saida_recente, estimar_chegada_portao_1, montar_localizacao
 
 
+MARCADOR_FIM_BLOCO = "operacao_encerrada_bloco"
+
+
 def _resultado_para_indice(indice, sentido, estimado_por_horario=True):
     return {
         "ponto_anterior": None,
@@ -74,8 +77,36 @@ def ajustar_primeira_biblioteca(estado, resultado_registro, agora):
     return estado
 
 
+def _texto_bloco_encerrado(resultado):
+    linhas = [
+        "🅿️ O circular provavelmente já retornou à Garagem.",
+        "🚌 A última volta deste bloco já encerrou pelo horário previsto.",
+    ]
+
+    if resultado.get("fim_do_dia"):
+        linhas += ["", "🌙 As viagens de hoje já encerraram."]
+    else:
+        proxima = resultado.get("proxima") or {}
+        if proxima.get("hora"):
+            linhas += [
+                "",
+                "⏰ Próxima saída prevista:",
+                f"     🕐 {proxima['hora']} — {proxima.get('origem', 'Garagem')}",
+            ]
+
+    linhas += [
+        "",
+        "ℹ️ Situação estimada pelo horário, sem confirmação recente de passagem.",
+    ]
+    return "\n".join(linhas)
+
+
 def montar_localizacao_com_biblioteca(estado, agora):
     resultado = estado.get("resultado_rota") or {}
+
+    if resultado.get(MARCADOR_FIM_BLOCO):
+        return estado, _texto_bloco_encerrado(resultado)
+
     if estado.get("ponto_atual") == "biblioteca" and resultado.get("biblioteca_ambigua"):
         horario = estado.get("horario")
         hora_txt = "--:--"
