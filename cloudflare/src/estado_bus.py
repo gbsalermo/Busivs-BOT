@@ -4,12 +4,13 @@ from datetime import datetime
 from workers import DurableObject
 
 from avisos_blocos import expiracao_bloco_aviso
-from biblioteca_contexto import ajustar_primeira_biblioteca, montar_localizacao_com_biblioteca
+from biblioteca_contexto import ajustar_primeiro_ponto, montar_localizacao_com_biblioteca
 from ciclo_noturno import reiniciar_se_novo_ciclo_noturno
 from expiracao_volta import expirar_confirmacao_volta_anterior
 from horarios_pico import montar_resumo_horarios
 from micro import janela_operacao_micro_atual, micro_pode_operar_agora
 from regras import agora_local, estado_vazio, registrar_passagem
+from transicao_bloco import confirmacao_inicia_novo_bloco
 from validacao_rota import validar_deslocamento
 
 MAX_AVISOS_ATIVOS = 3
@@ -198,7 +199,7 @@ class BusState(DurableObject):
         if bloqueio is not None:
             return bloqueio
         estado, resultado = registrar_passagem(estado, ponto_id, telegram_id, agora=agora)
-        estado = ajustar_primeira_biblioteca(estado, resultado, agora)
+        estado = ajustar_primeiro_ponto(estado, resultado, agora)
         await self._salvar_chave_estado("estado_micro", estado)
         return resultado
 
@@ -226,8 +227,16 @@ class BusState(DurableObject):
         estado_original = estado
         estado = reiniciar_se_novo_ciclo_noturno(estado, agora)
         estado = expirar_confirmacao_volta_anterior(estado, agora)
+
+        # Se um bloco novo já começou e o ponto informado é compatível com ele,
+        # o estado anterior é abandonado por completo. Assim histórico, sentido e
+        # próximo ponto do bloco antigo não contaminam a nova operação.
+        if confirmacao_inicia_novo_bloco(estado, ponto_id, agora):
+            estado = estado_vazio()
+
         if estado != estado_original:
             await self._salvar(estado)
+
         bloqueio = validar_deslocamento(
             estado,
             ponto_id,
@@ -236,8 +245,9 @@ class BusState(DurableObject):
         )
         if bloqueio is not None:
             return bloqueio
+
         estado, resultado = registrar_passagem(estado, ponto_id, telegram_id, agora=agora)
-        estado = ajustar_primeira_biblioteca(estado, resultado, agora)
+        estado = ajustar_primeiro_ponto(estado, resultado, agora)
         await self._salvar(estado)
         return resultado
 
