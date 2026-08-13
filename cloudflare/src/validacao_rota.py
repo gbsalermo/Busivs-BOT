@@ -11,6 +11,7 @@ from dados import ROTA
 # poucos segundos sem tornar o sistema rígido para atrasos reais.
 SEGUNDOS_POR_TRECHO_LONGO = 25
 DISTANCIA_LIVRE = 2
+MARCADOR_FIM_BLOCO = "operacao_encerrada_bloco"
 
 
 def _parse_datetime(valor):
@@ -58,12 +59,23 @@ def _distancia_ciclica(origem, destino):
 
 
 def validar_deslocamento(estado, novo_ponto, agora):
-    """Valida apenas deslocamentos temporalmente absurdos.
+    """Valida deslocamentos absurdos e janelas já encerradas.
 
     Retorna ``None`` quando não há motivo para bloquear. Quando o salto é longo
-    demais para o tempo decorrido, retorna um resultado compatível com o fluxo
-    de rejeição de ``registrar_passagem``.
+    demais para o tempo decorrido, ou quando o bloco operacional já terminou,
+    retorna um resultado compatível com o fluxo de rejeição de
+    ``registrar_passagem``.
     """
+    resultado_rota = (estado or {}).get("resultado_rota") or {}
+    if resultado_rota.get(MARCADOR_FIM_BLOCO):
+        return {
+            "aceito": False,
+            "motivo": "fora_circulacao",
+            "origem": "Garagem",
+            "proxima": resultado_rota.get("proxima"),
+            "fim_previsto": resultado_rota.get("fim_previsto"),
+        }
+
     ponto_atual = estado.get("ponto_atual")
     horario_atual = _parse_datetime(estado.get("horario"))
 
