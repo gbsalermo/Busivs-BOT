@@ -89,7 +89,7 @@ def teclado_ajuda():
 def teclado_periodos():
     return {"inline_keyboard": [
         [{"text": "🌅 Manhã", "callback_data": "periodo_manha"}, {"text": "🍽️ Almoço", "callback_data": "periodo_meio_dia"}],
-        [{"text": "🌤️ Tarde", "callback_data": "periodo_tarde"}, {"text": "🌙 Noite", "callback_data": "periodo_noite"}],
+        [{"text": "🌤️ Tarde", "callback_data": "periodo_tarde"), {"text": "🌙 Noite", "callback_data": "periodo_noite"}],
         [{"text": "⬅️ Voltar ao menu", "callback_data": "menu"}],
     ]}
 
@@ -271,6 +271,8 @@ class Default(WorkerEntrypoint):
             texto = "Obrigado pela informação 😊"
         elif resultado.get("motivo") == "deslocamento_improvavel":
             texto = "⚠️ Essa confirmação parece incompatível com a última passagem registrada."
+        elif resultado.get("motivo") == "ordem_rota_invalida":
+            texto = "⚠️ Esse ponto não é compatível com a sequência atual do trajeto."
         elif resultado.get("motivo") in {"fora_circulacao", "micro_inativo"}:
             texto = "🚫 Não há percurso ativo para esse veículo no momento."
         else:
@@ -291,6 +293,13 @@ class Default(WorkerEntrypoint):
         if acao == "micro_confirmar": return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN, chat_id, "🚐 Você viu o micro?", reply_markup=teclado_confirmar_micro())
         if acao == "micro_confirmar_sim":
             resultado = await self._estado().ativar_micro()
+            if not resultado.get("ok") and resultado.get("motivo") == "fora_horario_micro":
+                return await enviar_mensagem(
+                    self.env.TELEGRAM_BOT_TOKEN,
+                    chat_id,
+                    "🚫 O micro não possui operação prevista neste horário.\n\nAs confirmações do reforço só são aceitas durante os blocos oficiais cadastrados.",
+                    reply_markup=teclado_voltar(),
+                )
             if resultado.get("ja_ativo"): return await self._menu(chat_id, telegram_id)
             texto = "🚐 Obrigado pela informação! O micro foi marcado como em operação.\n\n" + resumo_micro()
             tempo = tempo_micro(resultado)
