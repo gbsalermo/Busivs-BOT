@@ -89,7 +89,7 @@ def teclado_ajuda():
 def teclado_periodos():
     return {"inline_keyboard": [
         [{"text": "🌅 Manhã", "callback_data": "periodo_manha"}, {"text": "🍽️ Almoço", "callback_data": "periodo_meio_dia"}],
-        [{"text": "🌤️ Tarde", "callback_data": "periodo_tarde"), {"text": "🌙 Noite", "callback_data": "periodo_noite"}],
+        [{"text": "🌤️ Tarde", "callback_data": "periodo_tarde"}, {"text": "🌙 Noite", "callback_data": "periodo_noite"}],
         [{"text": "⬅️ Voltar ao menu", "callback_data": "menu"}],
     ]}
 
