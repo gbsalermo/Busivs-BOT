@@ -31,7 +31,7 @@ MANUAL = """📖 Dicas para uso do BUSIVS
 Mostra a última confirmação colaborativa e a estimativa do trajeto. Se o micro estiver ativo, os dois veículos aparecem separados.
 
 📍 Informar ponto atual
-Use somente quando você acabou de ver o veículo passar. Se o micro estiver ativo, escolha primeiro qual veículo você viu.
+Use somente quando você acabou de ver o veículo passar. A opção só fica disponível durante uma janela operacional ativa. Se o micro estiver ativo, escolha primeiro qual veículo você viu.
 
 ⏰ Próximos horários
 Mostra as próximas referências do circular principal. Quando o micro estiver em operação, também exibe a referência do reforço.
@@ -56,11 +56,14 @@ def teclado_voltar():
     return {"inline_keyboard": [[{"text": "⬅️ Voltar ao menu", "callback_data": "menu"}]]}
 
 
-def teclado_menu(micro_ativo=False, admin=False):
+def teclado_menu(micro_ativo=False, admin=False, principal_ativo=True):
     micro = {"text": "🚐 Micro em operação ✅", "callback_data": "micro_ativo"} if micro_ativo else {"text": "🚐 Confirmar que o micro está rodando", "callback_data": "micro_confirmar"}
     linhas = [
         [{"text": "🚌 Onde está o ônibus?", "callback_data": "onde"}],
-        [{"text": "📍 Informar ponto atual", "callback_data": "local"}],
+    ]
+    if principal_ativo or micro_ativo:
+        linhas.append([{"text": "📍 Informar ponto atual", "callback_data": "local"}])
+    linhas += [
         [{"text": "⏰ Próximos horários", "callback_data": "horarios"}],
         [{"text": "📋 Listar horários", "callback_data": "listar_horarios"}],
         [micro],
@@ -212,14 +215,27 @@ class Default(WorkerEntrypoint):
     async def _status_micro(self):
         return await self._estado().micro_status()
 
+    async def _status_principal(self):
+        return await self._estado().status_registro_principal()
+
     async def _avisos_ativos(self):
         return (await self._estado().listar_avisos()).get("avisos", [])
 
     async def _menu(self, chat_id, telegram_id=None, boas_vindas=False):
-        status = await self._status_micro()
+        status_micro = await self._status_micro()
+        status_principal = await self._status_principal()
         if boas_vindas:
             await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN, chat_id, "👋 Bem-vindo ao BUSIVS!\n\nEm caso de dúvidas, clique em ❓ Ajuda ou fale com o administrador.")
-        envio = await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN, chat_id, "🚌 BUSIVS BOT\n\nEscolha uma opção:", reply_markup=teclado_menu(status.get("ativo"), self._telegram_admin(telegram_id)))
+        envio = await enviar_mensagem(
+            self.env.TELEGRAM_BOT_TOKEN,
+            chat_id,
+            "🚌 BUSIVS BOT\n\nEscolha uma opção:",
+            reply_markup=teclado_menu(
+                status_micro.get("ativo"),
+                self._telegram_admin(telegram_id),
+                status_principal.get("ativo"),
+            ),
+        )
         avisos = await self._avisos_ativos()
         if avisos:
             return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN, chat_id, texto_avisos(avisos))
@@ -242,9 +258,22 @@ class Default(WorkerEntrypoint):
         return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN, chat_id, texto, parse_mode="HTML", reply_markup=teclado_voltar())
 
     async def _local(self, chat_id):
-        status = await self._status_micro()
-        if status.get("ativo"):
+        status_principal = await self._status_principal()
+        status_micro = await self._status_micro()
+        principal_ativo = status_principal.get("ativo")
+        micro_ativo = status_micro.get("ativo")
+
+        if not principal_ativo and not micro_ativo:
+            return await enviar_mensagem(
+                self.env.TELEGRAM_BOT_TOKEN,
+                chat_id,
+                "🚫 Não há percurso ativo para registrar neste momento.",
+                reply_markup=teclado_voltar(),
+            )
+        if principal_ativo and micro_ativo:
             return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN, chat_id, "📍 Qual veículo você viu?", reply_markup=teclado_veiculo())
+        if micro_ativo:
+            return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN, chat_id, "🚐 Onde o micro acabou de passar?", reply_markup=teclado_pontos("local_micro"))
         return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN, chat_id, "📍 Onde o ônibus acabou de passar?", reply_markup=teclado_pontos("local_principal"))
 
     async def _horarios(self, chat_id):
@@ -309,8 +338,16 @@ class Default(WorkerEntrypoint):
             if not self._telegram_admin(telegram_id): return {"ok_http": True, "status": 200, "telegram": {"ok": True}}
             await self._estado().desativar_micro()
             return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN, chat_id, "🚐 Micro desativado pelo administrador.", reply_markup=teclado_voltar())
-        if acao == "veiculo_principal": return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN, chat_id, "🚌 Onde o circular acabou de passar?", reply_markup=teclado_pontos("local_principal"))
-        if acao == "veiculo_micro": return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN, chat_id, "🚐 Onde o micro acabou de passar?", reply_markup=teclado_pontos("local_micro"))
+        if acao == "veiculo_principal":
+            status = await self._status_principal()
+            if not status.get("ativo"):
+                return await self._resultado_ponto(chat_id, {"aceito": False, "motivo": "fora_circulacao"})
+            return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN, chat_id, "🚌 Onde o circular acabou de passar?", reply_markup=teclado_pontos("local_principal"))
+        if acao == "veiculo_micro":
+            status = await self._status_micro()
+            if not status.get("ativo"):
+                return await self._resultado_ponto(chat_id, {"aceito": False, "motivo": "micro_inativo"})
+            return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN, chat_id, "🚐 Onde o micro acabou de passar?", reply_markup=teclado_pontos("local_micro"))
         if acao.startswith("periodo_"):
             periodo = acao.replace("periodo_", "", 1)
             return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN, chat_id, listar_horarios_periodo(periodo), parse_mode="HTML", reply_markup=teclado_voltar())
