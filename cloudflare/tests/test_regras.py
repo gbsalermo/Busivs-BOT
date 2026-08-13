@@ -18,10 +18,17 @@ FUSO = timezone(timedelta(hours=-3))
 
 
 class TestRegrasCloudflare(unittest.TestCase):
-    def test_estimativa_pico_1300(self):
+    def test_estimativa_1300_nao_e_pico(self):
         previsao = estimar_chegada_portao_1("13:00")
-        self.assertEqual(previsao["inicio"], "13:20")
-        self.assertEqual(previsao["fim"], "13:25")
+        self.assertFalse(previsao["pico"])
+        self.assertEqual(previsao["inicio"], "13:15")
+        self.assertEqual(previsao["fim"], "13:20")
+
+    def test_estimativa_1325_nao_e_pico(self):
+        previsao = estimar_chegada_portao_1("13:25")
+        self.assertFalse(previsao["pico"])
+        self.assertEqual(previsao["inicio"], "13:40")
+        self.assertEqual(previsao["fim"], "13:45")
 
     def test_listagem_tarde_contem_1300_e_1600(self):
         texto = listar_horarios_periodo("tarde")

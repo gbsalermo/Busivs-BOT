@@ -9,6 +9,7 @@ EXTENSAO_PICO_POR_CONFIRMACAO_MINUTOS = 10
 SOBREPOSICAO_MAXIMA_PROXIMO_BLOCO_MINUTOS = 5
 JANELA_CONFIRMACAO_PICO_MINUTOS = 15
 JANELA_PRE_SAIDA_MINUTOS = 5
+MARCADOR_FIM_BLOCO = "operacao_encerrada_bloco"
 
 
 def _momento(hora, referencia):
@@ -95,13 +96,17 @@ def _confirmacao_estado(estado):
 
 
 def fim_efetivo_bloco(bloco, estado=None):
-    """Fecha o bloco por estimativa, com extensão curta quando o pico atrasou.
+    """Fecha o bloco por confirmação manual ou por estimativa/tolerância."""
+    resultado = (estado or {}).get("resultado_rota") or {}
+    if (
+        resultado.get(MARCADOR_FIM_BLOCO)
+        and resultado.get("bloco_id") == bloco.get("id")
+        and resultado.get("garagem_confirmada")
+    ):
+        # Retornar o início torna o bloco imediatamente inativo para qualquer
+        # instante posterior, dando prioridade total à confirmação humana.
+        return bloco["inicio_dt"]
 
-    Uma confirmação real perto do fechamento pode estender um bloco de pico em
-    até 10 min. Se já existe bloco seguinte, o estado antigo pode sobreviver no
-    máximo 5 min dentro dele; uma confirmação compatível com a nova saída passa
-    então a representar o bloco novo.
-    """
     fim = bloco["fim_base"]
     confirmado_em = _confirmacao_estado(estado)
 

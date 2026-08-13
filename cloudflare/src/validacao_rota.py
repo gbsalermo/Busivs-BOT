@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from dados import HORARIOS, ROTA
+from dados import BLOCOS_PRINCIPAL, HORARIOS, ROTA
 
 # A confirmação colaborativa registra o momento do clique, não o instante exato
 # em que o ônibus cruzou o ponto. Por isso esta validação é deliberadamente
@@ -12,6 +12,9 @@ from dados import HORARIOS, ROTA
 SEGUNDOS_POR_TRECHO_LONGO = 25
 DISTANCIA_LIVRE = 2
 MARCADOR_FIM_BLOCO = "operacao_encerrada_bloco"
+MARCADOR_RETORNO_GARAGEM = "retorno_garagem"
+PONTOS_RETORNO_GARAGEM = {"fitotecnia", "solos_neas_florestal", "garagem"}
+MARCADOR_AUTORIZACAO_RETORNO = "_autorizar_retorno_garagem"
 
 
 def _parse_datetime(valor):
@@ -89,6 +92,41 @@ def _momento_saida(hora, agora):
     return agora.replace(hour=hh, minute=mm, second=0, microsecond=0)
 
 
+def _bloco_ultima_volta_atual(agora):
+    candidatos = []
+    for indice, bloco in enumerate(BLOCOS_PRINCIPAL):
+        ultima = _momento_saida(bloco["ultima"], agora)
+        if agora < ultima:
+            continue
+        if indice + 1 < len(BLOCOS_PRINCIPAL):
+            proximo = _momento_saida(BLOCOS_PRINCIPAL[indice + 1]["inicio"], agora)
+            if agora >= proximo:
+                continue
+        candidatos.append((ultima, bloco))
+    return max(candidatos, key=lambda item: item[0]) if candidatos else (None, None)
+
+
+def _retorno_garagem_liberado(estado, agora):
+    resultado = (estado or {}).get("resultado_rota") or {}
+    ultima_dt, bloco = _bloco_ultima_volta_atual(agora)
+    if bloco is None:
+        return False
+
+    if resultado.get(MARCADOR_RETORNO_GARAGEM) and resultado.get("bloco_id") == bloco["id"]:
+        return True
+
+    confirmado_em = _parse_datetime((estado or {}).get("horario"))
+    if confirmado_em is None or confirmado_em < ultima_dt:
+        return False
+
+    indice_atual = _indice_atual_linear(estado)
+    indice_portao_1 = next(
+        (i for i, item in enumerate(ROTA) if item["ponto_id"] == "portao_1"),
+        None,
+    )
+    return indice_atual is not None and indice_portao_1 is not None and indice_atual >= indice_portao_1
+
+
 def _houve_nova_saida_desde_confirmacao(estado, agora):
     """Indica se uma nova volta oficial pode justificar o reinício da rota.
 
@@ -137,6 +175,22 @@ def validar_deslocamento(
             "proxima": resultado_rota.get("proxima"),
             "fim_previsto": resultado_rota.get("fim_previsto"),
         }
+
+    retorno_garagem = exigir_nova_saida_para_ciclo and _retorno_garagem_liberado(estado, agora)
+    if novo_ponto == "garagem" and not retorno_garagem:
+        return {
+            "aceito": False,
+            "motivo": "ordem_rota_invalida",
+            "ponto_anterior": (estado or {}).get("ponto_atual"),
+            "ponto_novo": novo_ponto,
+        }
+
+    # Na última volta do bloco, após uma confirmação no Portão 1 ou em ponto
+    # posterior do retorno, Fitotecnia/Solos/Garagem formam um trecho especial
+    # de encerramento. Ele não deve ser confundido com o wrap de uma nova volta.
+    if retorno_garagem and novo_ponto in PONTOS_RETORNO_GARAGEM:
+        estado[MARCADOR_AUTORIZACAO_RETORNO] = True
+        return None
 
     ordem_valida = _ordem_linear_valida(estado, novo_ponto)
     if not ordem_valida:
