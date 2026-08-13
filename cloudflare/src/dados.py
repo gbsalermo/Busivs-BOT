@@ -1,6 +1,6 @@
 HORARIOS = {
     "principal": [
-        {"hora":"06:25","origem":"Garagem"},{"hora":"06:50","origem":"RU/Residencias"},{"hora":"07:10","origem":"RU/Residencias"},{"hora":"07:25","origem":"RU/Residencias"},{"hora":"07:40","origem":"RU/Residencias"},{"hora":"07:55","origem":"RU/Residencias"},{"hora":"09:35","origem":"Garagem"},{"hora":"10:00","origem":"Garagem"},{"hora":"11:30","origem":"Garagem"},{"hora":"11:55","origem":"RU/Residencias"},{"hora":"12:20","origem":"RU/Residencias"},{"hora":"13:00","origem":"Garagem"},{"hora":"13:25","origem":"RU/Residencias"},{"hora":"13:45","origem":"RU/Residencias"},{"hora":"14:00","origem":"RU/Residencias"},{"hora":"15:35","origem":"Garagem"},{"hora":"16:00","origem":"Garagem"},{"hora":"17:30","origem":"Garagem"},{"hora":"17:55","origem":"RU/Residencias"},{"hora":"18:15","origem":"RU/Residencias"},{"hora":"20:40","origem":"Garagem"},{"hora":"21:40","origem":"Garagem"},{"hora":"22:30","origem":"Garagem"}
+        {"hora":"06:25","origem":"Garagem"},{"hora":"06:50","origem":"RU/Residencias"},{"hora":"07:10","origem":"RU/Residencias"},{"hora":"07:25","origem":"RU/Residencias"},{"hora":"07:40","origem":"RU/Residencias"},{"hora":"07:55","origem":"RU/Residencias"},{"hora":"09:35","origem":"RU/Residencias"},{"hora":"10:00","origem":"Garagem"},{"hora":"11:30","origem":"Garagem"},{"hora":"11:55","origem":"RU/Residencias"},{"hora":"12:20","origem":"RU/Residencias"},{"hora":"13:00","origem":"Garagem"},{"hora":"13:25","origem":"RU/Residencias"},{"hora":"13:45","origem":"RU/Residencias"},{"hora":"14:00","origem":"RU/Residencias"},{"hora":"15:35","origem":"RU/Residencias"},{"hora":"16:00","origem":"Garagem"},{"hora":"17:30","origem":"Garagem"},{"hora":"17:55","origem":"RU/Residencias"},{"hora":"18:15","origem":"RU/Residencias"},{"hora":"20:40","origem":"Garagem"},{"hora":"21:40","origem":"Garagem"},{"hora":"22:30","origem":"Garagem"}
     ],
     "micro": [
         {"hora":"07:25","origem":"Garagem","fim":"07:40"},
@@ -12,20 +12,23 @@ HORARIOS = {
     ]
 }
 
-# Bloco operacional = ciclo que começa na Garagem e termina quando a última
-# volta do conjunto retorna plausivelmente à Garagem. Alguns blocos possuem
-# mais de uma referência cuja origem também é Garagem (09:35/10:00 e
-# 15:35/16:00), por isso os limites são declarados explicitamente em vez de
-# inferidos apenas pela origem ou pela distância entre horários.
+# Bloco operacional = ciclo que executa uma ou mais voltas e termina quando a
+# última volta do conjunto retorna plausivelmente à Garagem.
+#
+# 09:35 e 15:35 são exceções operacionais: embora a definição original tratasse
+# essas referências como saídas da Garagem, na prática elas normalmente partem
+# do RU. Mantemos os blocos 09:35–10:00 e 15:35–16:00 explicitamente cadastrados
+# para representar o comportamento real, e 10:00/16:00 continuam como saídas de
+# Garagem dentro desses conjuntos.
 #
 # Os horários 20:40, 21:40 e 22:30 pertencem ao mesmo turno noturno, mas são
 # três blocos independentes: cada um sai e retorna à Garagem.
 BLOCOS_PRINCIPAL = [
     {"id":"manha_inicial","inicio":"06:25","ultima":"07:55"},
-    {"id":"manha_intermediario","inicio":"09:35","ultima":"10:00"},
+    {"id":"manha_intermediario","inicio":"09:35","ultima":"10:00","excecao_inicio_ru":True},
     {"id":"almoco","inicio":"11:30","ultima":"12:20"},
     {"id":"inicio_tarde","inicio":"13:00","ultima":"14:00"},
-    {"id":"tarde_intermediario","inicio":"15:35","ultima":"16:00"},
+    {"id":"tarde_intermediario","inicio":"15:35","ultima":"16:00","excecao_inicio_ru":True},
     {"id":"fim_tarde","inicio":"17:30","ultima":"18:15"},
     {"id":"noite_2040","inicio":"20:40","ultima":"20:40"},
     {"id":"noite_2140","inicio":"21:40","ultima":"21:40"},
