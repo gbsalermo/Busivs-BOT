@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from dados import ROTA
+from dados import HORARIOS, ROTA
 
 # A confirmação colaborativa registra o momento do clique, não o instante exato
 # em que o ônibus cruzou o ponto. Por isso esta validação é deliberadamente
@@ -68,12 +68,7 @@ def _indice_atual_linear(estado):
 
 
 def _ordem_linear_valida(estado, novo_ponto):
-    """Valida avanço sem permitir wrap automático para uma nova volta.
-
-    Usado no micro, cuja confirmação deve respeitar a ordem da volta atual.
-    O RU final continua sendo aceito após Torre/COTEC, mas um ponto anterior
-    como Pavilhão II não pode aparecer depois de um ponto do fim da rota.
-    """
+    """Valida avanço dentro da volta atual sem fazer wrap automaticamente."""
     ponto_atual = (estado or {}).get("ponto_atual")
     if not ponto_atual or ponto_atual == novo_ponto:
         return True
@@ -89,12 +84,49 @@ def _ordem_linear_valida(estado, novo_ponto):
     return any(indice > indice_atual for indice in destinos)
 
 
-def validar_deslocamento(estado, novo_ponto, agora, permitir_ciclo=True):
-    """Valida deslocamentos absurdos e janelas já encerradas.
+def _momento_saida(hora, agora):
+    hh, mm = map(int, hora.split(":"))
+    return agora.replace(hour=hh, minute=mm, second=0, microsecond=0)
 
-    ``permitir_ciclo=False`` torna a validação estrita para uma única volta,
-    impedindo que um ponto anterior seja interpretado automaticamente como
-    início de outro ciclo.
+
+def _houve_nova_saida_desde_confirmacao(estado, agora):
+    """Indica se uma nova volta oficial pode justificar o reinício da rota.
+
+    No circular principal a rota é cíclica, mas um ponto anterior só pode ser
+    interpretado como pertencente à volta seguinte quando pelo menos uma nova
+    saída oficial ocorreu depois da última confirmação salva.
+    """
+    confirmado_em = _parse_datetime((estado or {}).get("horario"))
+    if confirmado_em is None:
+        return False
+
+    if confirmado_em.date() != agora.date():
+        return False
+
+    for viagem in HORARIOS.get("principal", []):
+        saida = _momento_saida(viagem["hora"], agora)
+        if confirmado_em < saida <= agora:
+            return True
+
+    return False
+
+
+def validar_deslocamento(
+    estado,
+    novo_ponto,
+    agora,
+    permitir_ciclo=True,
+    exigir_nova_saida_para_ciclo=False,
+):
+    """Valida deslocamentos absurdos, ordem da rota e janelas encerradas.
+
+    ``permitir_ciclo=False`` impede qualquer wrap para uma volta seguinte.
+
+    ``exigir_nova_saida_para_ciclo=True`` mantém a flexibilidade do principal,
+    mas só permite um ponto anterior da rota quando uma nova saída oficial já
+    ocorreu depois da última confirmação. Assim Torre -> Pavilhão II não vira
+    artificialmente uma nova volta enquanto o horário ainda pertence à mesma
+    viagem; depois de uma nova saída oficial, o reinício volta a ser possível.
     """
     resultado_rota = (estado or {}).get("resultado_rota") or {}
     if resultado_rota.get(MARCADOR_FIM_BLOCO):
@@ -106,13 +138,24 @@ def validar_deslocamento(estado, novo_ponto, agora, permitir_ciclo=True):
             "fim_previsto": resultado_rota.get("fim_previsto"),
         }
 
-    if not permitir_ciclo and not _ordem_linear_valida(estado, novo_ponto):
-        return {
-            "aceito": False,
-            "motivo": "ordem_rota_invalida",
-            "ponto_anterior": (estado or {}).get("ponto_atual"),
-            "ponto_novo": novo_ponto,
-        }
+    ordem_valida = _ordem_linear_valida(estado, novo_ponto)
+    if not ordem_valida:
+        if not permitir_ciclo:
+            return {
+                "aceito": False,
+                "motivo": "ordem_rota_invalida",
+                "ponto_anterior": (estado or {}).get("ponto_atual"),
+                "ponto_novo": novo_ponto,
+            }
+
+        if exigir_nova_saida_para_ciclo and not _houve_nova_saida_desde_confirmacao(estado, agora):
+            return {
+                "aceito": False,
+                "motivo": "ordem_rota_invalida",
+                "ponto_anterior": (estado or {}).get("ponto_atual"),
+                "ponto_novo": novo_ponto,
+                "sem_nova_saida": True,
+            }
 
     ponto_atual = estado.get("ponto_atual")
     horario_atual = _parse_datetime(estado.get("horario"))
