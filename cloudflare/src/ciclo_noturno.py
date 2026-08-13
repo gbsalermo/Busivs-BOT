@@ -1,9 +1,9 @@
 from datetime import datetime
 
-from dados import HORARIOS
+from dados import BLOCOS_PRINCIPAL
 from regras import agora_local, estado_vazio
 
-INICIO_CICLOS_NOTURNOS = "20:40"
+INICIO_TURNO_NOTURNO = "20:40"
 
 
 def _minutos(hora):
@@ -21,14 +21,19 @@ def _previsto(hora, agora):
 
 
 def ultimo_inicio_de_ciclo_noturno(agora=None):
+    """Retorna o último bloco noturno iniciado.
+
+    20:40, 21:40 e 22:30 pertencem ao mesmo turno da noite, mas cada horário
+    abre um bloco operacional independente que sai e retorna à Garagem.
+    """
     agora = agora or agora_local()
-    limite = _minutos(INICIO_CICLOS_NOTURNOS)
+    limite = _minutos(INICIO_TURNO_NOTURNO)
     candidatos = []
 
-    for horario in HORARIOS["principal"]:
-        if _minutos(horario["hora"]) < limite:
+    for bloco in BLOCOS_PRINCIPAL:
+        if _minutos(bloco["inicio"]) < limite:
             continue
-        inicio = _previsto(horario["hora"], agora)
+        inicio = _previsto(bloco["inicio"], agora)
         if inicio <= agora:
             candidatos.append(inicio)
 
