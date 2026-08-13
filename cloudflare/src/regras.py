@@ -292,7 +292,7 @@ def montar_localizacao(estado,agora=None):
                           f"⏰ Saída prevista em aproximadamente {minutos} min.\n"
                           f"🕐 Volta das {pre['hora']} — Garagem\n\n"
                           "ℹ️ Horário oficial; pode haver atraso na saída.")
-        if atual:return estado,f"🚌 Há uma volta prevista em andamento.\n🕐 Saída oficial: {atual['hora']} — {atual['origem']}\n➡️ Sentido provável: RUA\n\nℹ️ Não há confirmação recente de passagem; o ônibus pode estar adiantado ou atrasado."
+        if atual:return estado,f"🚌 Há uma volta programada em andamento.\n🕐 Saída oficial: {atual['hora']} — {atual['origem']}\n➡️ Sentido provável: RUA\n\nℹ️ Não há confirmação recente de passagem; o ônibus pode estar adiantado ou atrasado."
         if ret:return estado,_retorno(ret,prox)
         if ag:return estado,_aguardando(ag)
         sr=_ultima_saida_recente(agora)
