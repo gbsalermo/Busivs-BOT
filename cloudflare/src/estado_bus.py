@@ -99,7 +99,6 @@ class BusState(DurableObject):
         if indice < 0 or indice >= len(avisos):
             return {"ok": False, "avisos": avisos}
         removido = avisos.pop(indice)
-        self.dados = None
         await self._salvar_avisos(avisos)
         if not avisos:
             await self.ctx.storage.delete("avisos_expiram_em")
@@ -164,11 +163,7 @@ class BusState(DurableObject):
         agora = agora_local()
         janela = janela_operacao_micro_atual(agora)
         if janela is None:
-            return {
-                "ok": False,
-                "ja_ativo": False,
-                "motivo": "fora_horario_micro",
-            }
+            return {"ok": False, "ja_ativo": False, "motivo": "fora_horario_micro"}
 
         await self.ctx.storage.put("micro_ativo", True)
         await self.ctx.storage.put("micro_ativado_em", agora.isoformat())
