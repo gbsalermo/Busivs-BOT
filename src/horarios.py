@@ -34,8 +34,8 @@ NOMES_PERIODOS = {
 
 FAIXAS_PICO_PERIODOS = {
     "manha": "07:40–08:20 e 11:30–12:45",
-    "meio_dia": "11:30–14:00",
-    "tarde": "13:00–14:00",
+    "meio_dia": "11:30–14:00 (exceto 13:00 e 13:25)",
+    "tarde": "13:00–14:00 (exceto 13:00 e 13:25)",
     "noite": "17:30–18:40",
 }
 
@@ -112,6 +112,9 @@ def _periodo_por_hora(agora: datetime) -> tuple[str, str]:
 
 
 def _eh_horario_pico(hora: str) -> bool:
+    if hora in {"13:00", "13:25"}:
+        return False
+
     minutos = _minutos(hora)
 
     return (
