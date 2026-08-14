@@ -4,7 +4,7 @@ from dados import BLOCOS_PRINCIPAL, HORARIOS
 from regras import estimar_chegada_portao_1
 
 TOLERANCIA_RETORNO_DIA_MINUTOS = 15
-TOLERANCIA_RETORNO_NOITE_MINUTOS = 10
+TOLERANCIA_RETORNO_NOITE_MINUTOS = 5
 EXTENSAO_PICO_POR_CONFIRMACAO_MINUTOS = 10
 SOBREPOSICAO_MAXIMA_PROXIMO_BLOCO_MINUTOS = 5
 JANELA_CONFIRMACAO_PICO_MINUTOS = 15
@@ -64,17 +64,13 @@ def blocos_no_dia(referencia):
 
 
 def bloco_para_aviso(agora):
-    """Escolhe o único bloco ao qual um aviso operacional deve pertencer."""
     blocos = blocos_no_dia(agora)
-
     ativos = [b for b in blocos if b["inicio_dt"] <= agora < b["fim_base"]]
     if ativos:
         return max(ativos, key=lambda b: b["inicio_dt"])
-
     proximos = [b for b in blocos if b["inicio_dt"] > agora]
     if proximos:
         return min(proximos, key=lambda b: b["inicio_dt"])
-
     return blocos[-1] if blocos else None
 
 
@@ -96,15 +92,12 @@ def _confirmacao_estado(estado):
 
 
 def fim_efetivo_bloco(bloco, estado=None):
-    """Fecha o bloco por confirmação manual ou por estimativa/tolerância."""
     resultado = (estado or {}).get("resultado_rota") or {}
     if (
         resultado.get(MARCADOR_FIM_BLOCO)
         and resultado.get("bloco_id") == bloco.get("id")
         and resultado.get("garagem_confirmada")
     ):
-        # Retornar o início torna o bloco imediatamente inativo para qualquer
-        # instante posterior, dando prioridade total à confirmação humana.
         return bloco["inicio_dt"]
 
     fim = bloco["fim_base"]
@@ -133,23 +126,19 @@ def fim_efetivo_bloco(bloco, estado=None):
 
 
 def contexto_bloco_encerrado(estado, agora):
-    """Retorna a lacuna em que o bloco anterior já voltou à Garagem."""
     for bloco in blocos_no_dia(agora):
         fim = fim_efetivo_bloco(bloco, estado)
         proximo = bloco.get("proximo_inicio")
-
         if agora < fim:
             continue
         if proximo is not None and agora >= proximo:
             continue
-
         return {
             "bloco": bloco,
             "fim_previsto": fim,
             "proxima": bloco.get("proxima_viagem"),
             "fim_do_dia": proximo is None,
         }
-
     return None
 
 
@@ -161,7 +150,6 @@ def _proximo_dia_util(referencia):
 
 
 def proxima_operacao_principal(agora):
-    """Retorna a próxima abertura de bloco em um dia útil."""
     if agora.weekday() < 5:
         futuros = [b for b in blocos_no_dia(agora) if b["inicio_dt"] > agora]
         if futuros:
@@ -185,7 +173,6 @@ def proxima_operacao_principal(agora):
 
 
 def contexto_sem_operacao(estado, agora):
-    """Descreve períodos em que não existe bloco operacional ativo."""
     if agora.weekday() < 5:
         ativos = []
         for bloco in blocos_no_dia(agora):
@@ -217,7 +204,4 @@ def contexto_sem_operacao(estado, agora):
     else:
         tipo = "fim_dia"
 
-    return {
-        "tipo": tipo,
-        "proxima": proxima,
-    }
+    return {"tipo": tipo, "proxima": proxima}
