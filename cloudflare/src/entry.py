@@ -1,6 +1,8 @@
 import entry_core as _core
 from entry_core import *
 
+from dados import BLOCOS_PRINCIPAL, HORARIOS
+
 
 def teclado_localizacao(admin=False):
     linhas = [
@@ -8,7 +10,7 @@ def teclado_localizacao(admin=False):
         [{"text": "📍 Marcar ponto", "callback_data": "local"}],
     ]
     if admin:
-        linhas.append([{"text": "↩️ Retornar à volta anterior", "callback_data": "admin_volta_anterior"}])
+        linhas.append([{"text": "🧭 Escolher volta de referência", "callback_data": "admin_ref_menu"}])
     linhas.append([{"text": "⬅️ Voltar ao menu", "callback_data": "menu"}])
     return {"inline_keyboard": linhas}
 
@@ -18,10 +20,51 @@ def teclado_menu_com_controle(micro_ativo=False, admin=False, principal_ativo=Tr
     if not admin:
         return teclado
     linhas = list(teclado.get("inline_keyboard", []))
-    botao = [{"text": "↩️ Retornar à volta anterior", "callback_data": "admin_volta_anterior"}]
+    botao = [{"text": "🧭 Escolher volta de referência", "callback_data": "admin_ref_menu"}]
     indice_ajuda = next((i for i, linha in enumerate(linhas) if any(b.get("callback_data") == "ajuda" for b in linha)), len(linhas))
     linhas.insert(indice_ajuda, botao)
     return {"inline_keyboard": linhas}
+
+
+def _minutos(hora):
+    h, m = map(int, hora.split(":"))
+    return h * 60 + m
+
+
+def _bloco_referencia_atual():
+    agora = _core.agora_local()
+    minuto = agora.hour * 60 + agora.minute
+    blocos = BLOCOS_PRINCIPAL
+
+    for i, bloco in enumerate(blocos):
+        inicio = _minutos(bloco["inicio"])
+        proximo_inicio = _minutos(blocos[i + 1]["inicio"]) if i + 1 < len(blocos) else 24 * 60
+        if inicio <= minuto < proximo_inicio:
+            return bloco
+
+    futuros = [b for b in blocos if _minutos(b["inicio"]) > minuto]
+    return min(futuros, key=lambda b: _minutos(b["inicio"])) if futuros else blocos[-1]
+
+
+def _horarios_do_bloco(bloco):
+    horarios = HORARIOS.get("principal", [])
+    inicio = next((i for i, h in enumerate(horarios) if h["hora"] == bloco["inicio"]), None)
+    fim = next((i for i, h in enumerate(horarios) if h["hora"] == bloco["ultima"]), None)
+    if inicio is None or fim is None or fim < inicio:
+        return []
+    return horarios[inicio:fim + 1]
+
+
+def teclado_referencias():
+    bloco = _bloco_referencia_atual()
+    horarios = _horarios_do_bloco(bloco)
+    botoes = [
+        {"text": h["hora"], "callback_data": f"admin_ref_{h['hora'].replace(':', '')}"}
+        for h in horarios
+    ]
+    linhas = [botoes[i:i + 3] for i in range(0, len(botoes), 3)]
+    linhas.append([{"text": "⬅️ Voltar", "callback_data": "onde"}])
+    return {"inline_keyboard": linhas}, bloco
 
 
 class Default(_core.Default):
@@ -56,13 +99,39 @@ class Default(_core.Default):
     async def _acao(self, acao, chat_id, telegram_id=None):
         if acao == "onde":
             return await self._onde(chat_id, telegram_id)
-        if acao == "admin_volta_anterior":
+
+        if acao == "admin_ref_menu":
             if not self._telegram_admin(telegram_id):
                 return {"ok_http": True, "status": 200, "telegram": {"ok": True}}
-            resultado = await self._estado().retornar_volta_anterior()
+            teclado, bloco = teclado_referencias()
+            return await _core.enviar_mensagem(
+                self.env.TELEGRAM_BOT_TOKEN,
+                chat_id,
+                f"🧭 Escolha a volta de referência do bloco {bloco['inicio']}–{bloco['ultima']}:",
+                reply_markup=teclado,
+            )
+
+        if acao.startswith("admin_ref_"):
+            if not self._telegram_admin(telegram_id):
+                return {"ok_http": True, "status": 200, "telegram": {"ok": True}}
+            bruto = acao.replace("admin_ref_", "", 1)
+            if len(bruto) != 4 or not bruto.isdigit():
+                return await _core.enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN, chat_id, "⚠️ Referência inválida.", reply_markup=teclado_localizacao(True))
+            hora = f"{bruto[:2]}:{bruto[2:]}"
+            resultado = await self._estado().definir_volta_referencia(hora)
             if not resultado.get("ok"):
-                texto = "⚠️ Não há uma volta anterior disponível para selecionar."
+                texto = "⚠️ Não consegui selecionar essa volta."
             else:
-                texto = "↩️ Referência ajustada manualmente.\n\n" + f"🕐 Volta atual: {resultado['hora']} — {resultado.get('origem', '')}\n" + "📌 As confirmações já registradas foram mantidas."
-            return await _core.enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN, chat_id, texto, reply_markup=teclado_localizacao(True))
+                texto = (
+                    "🧭 Referência ajustada manualmente.\n\n"
+                    f"🕐 Volta atual: {resultado['hora']} — {resultado.get('origem', '')}\n"
+                    "📌 As confirmações já registradas foram mantidas."
+                )
+            return await _core.enviar_mensagem(
+                self.env.TELEGRAM_BOT_TOKEN,
+                chat_id,
+                texto,
+                reply_markup=teclado_localizacao(True),
+            )
+
         return await super()._acao(acao, chat_id, telegram_id)
