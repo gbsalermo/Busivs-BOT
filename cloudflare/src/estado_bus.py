@@ -3,6 +3,7 @@ import estado_bus_core as _core
 from transicao_bloco import confirmacao_inicia_novo_bloco
 from volta_referencia import (
     aplicar_referencia,
+    limpar_referencia_expirada,
     proxima_volta_provavel,
     retornar_volta_anterior as _retornar_volta_anterior,
     resumo_referenciado,
@@ -50,9 +51,18 @@ class BusState(_core.BusState):
         agora = _core.agora_local()
         estado = _core.reiniciar_se_novo_ciclo_noturno(estado, agora)
         estado = _core.expirar_confirmacao_volta_anterior(estado, agora)
-        await self._salvar(estado)
+
+        # Antes de renderizar, uma referência antiga perde prioridade quando
+        # atinge o limite operacional calculado por volta_referencia.py.
+        # A partir daí o resumo padrão volta a obedecer às regras normal/pico.
+        provavel = proxima_volta_provavel(estado, agora)
         texto_padrao = _core.montar_resumo_horarios(estado=estado, agora=agora)
-        return {"texto": resumo_referenciado(estado, agora, texto_padrao)}
+        texto = resumo_referenciado(estado, agora, texto_padrao)
+        if provavel is not None:
+            estado = limpar_referencia_expirada(estado, agora)
+
+        await self._salvar(estado)
+        return {"texto": texto}
 
     async def localizacao(self):
         resposta = await super().localizacao()
@@ -68,9 +78,10 @@ class BusState(_core.BusState):
                 "\n\n🟡 Próxima volta provavelmente em andamento."
                 f"\n🕐 Referência provável: {proxima['hora']} — {proxima.get('origem', '')}."
                 f"\n📌 Última volta confirmada: {atual['hora']} — {atual.get('origem', '')}."
-                "\n⬅️ A última confirmação indicava retorno ao RU."
                 "\nℹ️ Essa transição é estimada; uma nova confirmação tem prioridade."
             )
+            estado = limpar_referencia_expirada(estado, agora)
+            await self._salvar(estado)
         elif viagem:
             modo = "ajustada manualmente" if estado.get("saida_referencia_manual") else "confirmada"
             resposta["texto"] += (
