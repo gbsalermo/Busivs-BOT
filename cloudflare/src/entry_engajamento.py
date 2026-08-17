@@ -8,6 +8,7 @@ from regras import agora_local, estimar_chegada_portao_1
 from volta_referencia import ultima_saida_oficial, viagem_por_referencia
 
 MAX_CONVIDADOS = 10
+MAX_AVISOS_POR_VOLTA = 2
 TEMPO_NORMAL_PRIMEIRO_MIN = 5
 TEMPO_NORMAL_SEGUNDO_MIN = 15
 TEMPO_PICO_PRIMEIRO_MIN = 10
@@ -78,6 +79,17 @@ class BusState(_BusStateBase):
             return {"enviar": False}
 
         chave_volta = _chave_volta(viagem, agora)
+
+        bruto_contador = await self.ctx.storage.get("engajamento_contador_volta")
+        try:
+            contador = json.loads(bruto_contador) if bruto_contador else {}
+        except Exception:
+            contador = {}
+        if contador.get("chave_volta") != chave_volta:
+            contador = {"chave_volta": chave_volta, "avisos": 0}
+        if int(contador.get("avisos", 0)) >= MAX_AVISOS_POR_VOLTA:
+            return {"enviar": False}
+
         saida = _momento(viagem["hora"], agora)
         confirmacao = _dt(estado.get("horario"))
         confirmacao_valida = bool(confirmacao and confirmacao.date() == agora.date() and confirmacao >= saida)
@@ -143,6 +155,9 @@ class BusState(_BusStateBase):
             "engajamento_estagio",
             json.dumps({"chave_lacuna": chave_lacuna, "estagio": proximo_estagio}, ensure_ascii=False),
         )
+        contador["avisos"] = int(contador.get("avisos", 0)) + 1
+        await self.ctx.storage.put("engajamento_contador_volta", json.dumps(contador, ensure_ascii=False))
+
         return {
             "enviar": True,
             "ids": ids[:MAX_CONVIDADOS],
@@ -150,6 +165,7 @@ class BusState(_BusStateBase):
             "estagio": proximo_estagio,
             "limite": primeiro if proximo_estagio == 1 else segundo,
             "chave_lacuna": chave_lacuna,
+            "avisos_na_volta": contador["avisos"],
         }
 
 
