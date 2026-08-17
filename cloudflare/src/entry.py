@@ -3,6 +3,9 @@ from entry_core import *
 
 from dados import BLOCOS_PRINCIPAL, HORARIOS
 
+FEEDBACK_PROMPT = "💬 Envie seu feedback sobre o BUSIVS respondendo a esta mensagem."
+MAX_FEEDBACK = 2000
+
 
 def teclado_localizacao(admin=False):
     linhas = [
@@ -14,6 +17,20 @@ def teclado_localizacao(admin=False):
         linhas.append([{"text": "🅿️ Garagem / Encerrar bloco", "callback_data": "admin_ref_garagem"}])
     linhas.append([{"text": "⬅️ Voltar ao menu", "callback_data": "menu"}])
     return {"inline_keyboard": linhas}
+
+
+def teclado_ajuda_com_feedback():
+    return {"inline_keyboard": [
+        [{"text": "🗺️ Rota atual", "callback_data": "rota"}],
+        [{"text": "📖 Dicas para uso do BOT", "callback_data": "manual"}],
+        [{"text": "💬 Enviar feedback", "callback_data": "feedback"}],
+        [{"text": "⬅️ Voltar ao menu", "callback_data": "menu"}],
+    ]}
+
+
+# entry_core usa a função global teclado_ajuda dentro dos handlers herdados.
+# Substituí-la aqui mantém rota/manual/ajuda consistentes sem duplicar handlers.
+_core.teclado_ajuda = teclado_ajuda_com_feedback
 
 
 def teclado_menu_com_controle(micro_ativo=False, admin=False, principal_ativo=True):
@@ -102,6 +119,18 @@ class Default(_core.Default):
         if acao == "onde":
             return await self._onde(chat_id, telegram_id)
 
+        if acao == "feedback":
+            return await _core.enviar_mensagem(
+                self.env.TELEGRAM_BOT_TOKEN,
+                chat_id,
+                FEEDBACK_PROMPT + "\n\nPode enviar sugestão, problema encontrado ou algo que tenha ficado confuso.",
+                reply_markup={
+                    "force_reply": True,
+                    "selective": True,
+                    "input_field_placeholder": "Escreva seu feedback...",
+                },
+            )
+
         if acao == "admin_ref_menu":
             if not self._telegram_admin(telegram_id):
                 return {"ok_http": True, "status": 200, "telegram": {"ok": True}}
@@ -155,3 +184,126 @@ class Default(_core.Default):
             )
 
         return await super()._acao(acao, chat_id, telegram_id)
+
+    @staticmethod
+    def _eh_resposta_feedback(mensagem):
+        resposta = mensagem.get("reply_to_message") or {}
+        texto_prompt = (resposta.get("text") or "").strip()
+        return texto_prompt.startswith(FEEDBACK_PROMPT)
+
+    async def _receber_feedback(self, mensagem, chat_id, usuario):
+        texto = (mensagem.get("text") or "").strip()
+        if not texto:
+            return await _core.enviar_mensagem(
+                self.env.TELEGRAM_BOT_TOKEN,
+                chat_id,
+                "⚠️ O feedback precisa ser enviado como texto.",
+                reply_markup=teclado_ajuda_com_feedback(),
+            )
+        if len(texto) > MAX_FEEDBACK:
+            return await _core.enviar_mensagem(
+                self.env.TELEGRAM_BOT_TOKEN,
+                chat_id,
+                f"⚠️ Seu feedback ficou muito grande. Envie até {MAX_FEEDBACK} caracteres.",
+                reply_markup=teclado_ajuda_com_feedback(),
+            )
+
+        remetente = mensagem.get("from") or {}
+        nome = " ".join(filter(None, [remetente.get("first_name"), remetente.get("last_name")])).strip() or "Usuário"
+        username = remetente.get("username")
+        identificacao = f"@{username}" if username else "sem @username"
+        texto_admin = (
+            "💬 NOVO FEEDBACK — BUSIVS\n\n"
+            f"👤 {nome}\n"
+            f"🔗 {identificacao}\n"
+            f"🆔 Telegram ID: {usuario}\n\n"
+            "📝 Feedback:\n"
+            f"{texto}"
+        )
+
+        admin_chat_id = str(self.env.ADMIN_TELEGRAM_ID).strip()
+        envio_admin = await _core.enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN, admin_chat_id, texto_admin)
+        if not envio_admin.get("ok_http"):
+            return await _core.enviar_mensagem(
+                self.env.TELEGRAM_BOT_TOKEN,
+                chat_id,
+                "⚠️ Não consegui enviar seu feedback agora. Tente novamente mais tarde.",
+                reply_markup=teclado_ajuda_com_feedback(),
+            )
+
+        return await _core.enviar_mensagem(
+            self.env.TELEGRAM_BOT_TOKEN,
+            chat_id,
+            "✅ Feedback enviado. Obrigado por ajudar a melhorar o BUSIVS!",
+            reply_markup=teclado_ajuda_com_feedback(),
+        )
+
+    async def fetch(self, request):
+        parsed = _core.urlparse(request.url)
+        caminho = parsed.path
+        method = request.method
+
+        if method == "GET" and caminho == "/health":
+            return _core.Response.json({"status": "ok", "service": "busivs-bot", "runtime": "cloudflare-worker", "stage": "production-micro"})
+        if method == "POST" and caminho == "/admin/telegram/set-webhook":
+            if not self._admin_ok(request):
+                return _core.Response.json({"ok": False, "error": "admin_secret_invalid"}, status=403)
+            url = f"{parsed.scheme}://{parsed.netloc}/telegram/webhook"
+            r = await _core.configurar_webhook(self.env.TELEGRAM_BOT_TOKEN, url, self.env.TELEGRAM_WEBHOOK_SECRET)
+            return _core.Response.json({"ok": r["ok_http"], "webhook_url": url}, status=200 if r["ok_http"] else 502)
+        if method == "POST" and caminho == "/admin/telegram/delete-webhook":
+            if not self._admin_ok(request):
+                return _core.Response.json({"ok": False, "error": "admin_secret_invalid"}, status=403)
+            r = await _core.remover_webhook(self.env.TELEGRAM_BOT_TOKEN)
+            return _core.Response.json({"ok": r["ok_http"]}, status=200 if r["ok_http"] else 502)
+        if method == "POST" and caminho == "/telegram/webhook":
+            segredo = request.headers.get(_core.HEADER_SEGREDO_TELEGRAM)
+            if not segredo or segredo != self.env.TELEGRAM_WEBHOOK_SECRET:
+                return _core.Response.json({"ok": False, "error": "webhook_secret_invalid"}, status=403)
+            try:
+                update = await request.json()
+            except Exception:
+                return _core.Response.json({"ok": False, "error": "invalid_json"}, status=400)
+
+            mensagem = update.get("message") or update.get("edited_message")
+            if mensagem:
+                chat_id = (mensagem.get("chat") or {}).get("id")
+                usuario = (mensagem.get("from") or {}).get("id")
+                if chat_id is None:
+                    return _core.Response.json({"ok": True, "handled": False})
+                texto = (mensagem.get("text") or "").strip()
+
+                if self._eh_resposta_feedback(mensagem) and not texto.startswith("/"):
+                    envio = await self._receber_feedback(mensagem, chat_id, usuario)
+                else:
+                    aguardando = await self._estado().aguardando_aviso_personalizado()
+                    if aguardando.get("ativo") and self._telegram_admin(usuario) and not texto.startswith("/"):
+                        resultado = await self._estado().salvar_aviso_personalizado(texto)
+                        envio = await _core.enviar_mensagem(
+                            self.env.TELEGRAM_BOT_TOKEN,
+                            chat_id,
+                            ("✅ Aviso personalizado publicado." if resultado.get("ok") else "⚠️ Não consegui publicar esse aviso.") + "\n\n" + _core.texto_avisos(resultado.get("avisos", []), True),
+                            reply_markup=_core.teclado_admin_avisos((await self._status_micro()).get("ativo")),
+                        )
+                    elif texto == "/start":
+                        envio = await self._menu(chat_id, usuario, boas_vindas=True)
+                    else:
+                        comandos = {"/onde": "onde", "/local": "local", "/rota": "rota", "/horarios": "horarios", "/listar_horarios": "listar_horarios"}
+                        envio = await self._acao(comandos.get(texto, "desconhecido"), chat_id, usuario)
+                return _core.Response.json({"ok": envio["ok_http"], "handled": True}, status=200 if envio["ok_http"] else 502)
+
+            callback = update.get("callback_query")
+            if callback:
+                cid = callback.get("id")
+                if cid:
+                    await _core.responder_callback(self.env.TELEGRAM_BOT_TOKEN, cid)
+                chat_id = ((callback.get("message") or {}).get("chat") or {}).get("id")
+                if chat_id is None:
+                    return _core.Response.json({"ok": True, "handled": False})
+                usuario = (callback.get("from") or {}).get("id")
+                acao = callback.get("data") or ""
+                envio = await self._acao(acao, chat_id, usuario)
+                return _core.Response.json({"ok": envio["ok_http"], "handled": True, "callback": acao}, status=200 if envio["ok_http"] else 502)
+            return _core.Response.json({"ok": True, "handled": False})
+
+        return _core.Response.json({"service": "BUSIVS BOT", "status": "cloudflare-running", "health": "/health", "webhook": "/telegram/webhook"})
