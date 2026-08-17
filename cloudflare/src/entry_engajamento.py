@@ -7,10 +7,12 @@ from estado_bus import BusState as _BusStateBase
 from regras import agora_local, estimar_chegada_portao_1
 from volta_referencia import ultima_saida_oficial, viagem_por_referencia
 
-MAX_CONVIDADOS = 3
-TEMPO_NORMAL_MIN = 5
-TEMPO_PICO_MIN = 10
-JANELA_CONSULTA_MIN = 15
+MAX_CONVIDADOS = 10
+TEMPO_NORMAL_PRIMEIRO_MIN = 5
+TEMPO_NORMAL_SEGUNDO_MIN = 15
+TEMPO_PICO_PRIMEIRO_MIN = 10
+TEMPO_PICO_SEGUNDO_MIN = 20
+JANELA_CONSULTA_MIN = 30
 
 
 def teclado_convite():
@@ -36,6 +38,10 @@ def _dt(valor):
         return None
 
 
+def _chave_lacuna(viagem, base_tempo):
+    return f"{viagem['hora']}|{base_tempo.isoformat()}"
+
+
 class BusState(_BusStateBase):
     async def registrar_consulta_engajamento(self, telegram_id):
         if telegram_id is None:
@@ -57,7 +63,7 @@ class BusState(_BusStateBase):
         consultas = [c for c in consultas if c.get("chave") == chave]
         consultas = [c for c in consultas if str(c.get("telegram_id")) != str(telegram_id)]
         consultas.append({"chave": chave, "telegram_id": str(telegram_id), "consultado_em": agora.isoformat()})
-        await self.ctx.storage.put("engajamento_consultas", json.dumps(consultas[-50:], ensure_ascii=False))
+        await self.ctx.storage.put("engajamento_consultas", json.dumps(consultas[-100:], ensure_ascii=False))
         return {"ok": True, "chave": chave}
 
     async def candidatos_engajamento(self, admin_id=None):
@@ -70,16 +76,33 @@ class BusState(_BusStateBase):
         viagem = viagem_por_referencia(estado) or ultima_saida_oficial(agora)
         if not viagem:
             return {"enviar": False}
-        chave = _chave_volta(viagem, agora)
-        if str(await self.ctx.storage.get("engajamento_disparado")) == chave:
-            return {"enviar": False}
 
+        chave_volta = _chave_volta(viagem, agora)
         saida = _momento(viagem["hora"], agora)
         confirmacao = _dt(estado.get("horario"))
-        base_tempo = max(saida, confirmacao) if confirmacao and confirmacao.date() == agora.date() else saida
+        confirmacao_valida = bool(confirmacao and confirmacao.date() == agora.date() and confirmacao >= saida)
+        base_tempo = confirmacao if confirmacao_valida else saida
+        chave_lacuna = _chave_lacuna(viagem, base_tempo)
+
+        bruto_estagio = await self.ctx.storage.get("engajamento_estagio")
+        try:
+            controle = json.loads(bruto_estagio) if bruto_estagio else {}
+        except Exception:
+            controle = {}
+        if controle.get("chave_lacuna") != chave_lacuna:
+            controle = {"chave_lacuna": chave_lacuna, "estagio": 0}
+
         pico = bool(estimar_chegada_portao_1(viagem["hora"])["pico"])
-        limite = TEMPO_PICO_MIN if pico else TEMPO_NORMAL_MIN
-        if agora < base_tempo + timedelta(minutes=limite):
+        primeiro = TEMPO_PICO_PRIMEIRO_MIN if pico else TEMPO_NORMAL_PRIMEIRO_MIN
+        segundo = TEMPO_PICO_SEGUNDO_MIN if pico else TEMPO_NORMAL_SEGUNDO_MIN
+        decorrido = agora - base_tempo
+
+        estagio_atual = int(controle.get("estagio", 0))
+        if estagio_atual < 1 and decorrido >= timedelta(minutes=primeiro):
+            proximo_estagio = 1
+        elif estagio_atual < 2 and decorrido >= timedelta(minutes=segundo):
+            proximo_estagio = 2
+        else:
             return {"enviar": False}
 
         bruto = await self.ctx.storage.get("engajamento_consultas")
@@ -87,13 +110,13 @@ class BusState(_BusStateBase):
             consultas = json.loads(bruto) if bruto else []
         except Exception:
             consultas = []
-        inicio_consultas = confirmacao if confirmacao and confirmacao.date() == agora.date() else saida
+
         recentes = []
         for consulta in consultas:
-            if consulta.get("chave") != chave:
+            if consulta.get("chave") != chave_volta:
                 continue
             momento = _dt(consulta.get("consultado_em"))
-            if not momento or momento < inicio_consultas or agora - momento > timedelta(minutes=JANELA_CONSULTA_MIN):
+            if not momento or momento < base_tempo or agora - momento > timedelta(minutes=JANELA_CONSULTA_MIN):
                 continue
             telegram_id = str(consulta.get("telegram_id"))
             if admin_id is not None and telegram_id != str(admin_id):
@@ -102,7 +125,7 @@ class BusState(_BusStateBase):
 
         ids = []
         ultimo_autor = estado.get("telegram_id")
-        if confirmacao and ultimo_autor is not None:
+        if confirmacao_valida and ultimo_autor is not None:
             ultimo_autor = str(ultimo_autor)
             if ultimo_autor != "admin" and (admin_id is None or ultimo_autor == str(admin_id)):
                 ids.append(ultimo_autor)
@@ -116,8 +139,18 @@ class BusState(_BusStateBase):
         if not ids:
             return {"enviar": False}
 
-        await self.ctx.storage.put("engajamento_disparado", chave)
-        return {"enviar": True, "ids": ids[:MAX_CONVIDADOS], "pico": pico, "limite": limite, "chave": chave}
+        await self.ctx.storage.put(
+            "engajamento_estagio",
+            json.dumps({"chave_lacuna": chave_lacuna, "estagio": proximo_estagio}, ensure_ascii=False),
+        )
+        return {
+            "enviar": True,
+            "ids": ids[:MAX_CONVIDADOS],
+            "pico": pico,
+            "estagio": proximo_estagio,
+            "limite": primeiro if proximo_estagio == 1 else segundo,
+            "chave_lacuna": chave_lacuna,
+        }
 
 
 class Default(_entry.Default):
