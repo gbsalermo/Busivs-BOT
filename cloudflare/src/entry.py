@@ -11,6 +11,7 @@ def teclado_localizacao(admin=False):
     ]
     if admin:
         linhas.append([{"text": "🧭 Escolher volta de referência", "callback_data": "admin_ref_menu"}])
+        linhas.append([{"text": "🅿️ Garagem / Encerrar bloco", "callback_data": "admin_ref_garagem"}])
     linhas.append([{"text": "⬅️ Voltar ao menu", "callback_data": "menu"}])
     return {"inline_keyboard": linhas}
 
