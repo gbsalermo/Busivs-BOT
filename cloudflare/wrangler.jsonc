@@ -1,10 +1,13 @@
 {
   "$schema": "../node_modules/wrangler/config-schema.json",
   "name": "busivs-bot",
-  "main": "src/entry_admin.py",
+  "main": "src/entry_engajamento.py",
   "compatibility_date": "2026-08-11",
   "compatibility_flags": ["python_workers"],
   "keep_vars": true,
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
   "durable_objects": {
     "bindings": [
       {
