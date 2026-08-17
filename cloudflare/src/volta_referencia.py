@@ -9,10 +9,14 @@ LIMITE_REFERENCIA_APOS_PROXIMA_MINUTOS = 15
 # Tempo máximo plausível, a partir de uma confirmação no percurso de retorno,
 # para o ônibus chegar ao RU e já poder iniciar a volta seguinte.
 # Quanto mais perto do RU, menor a janela.
+# Biblioteca usa 10 min somente quando ela continua sendo a confirmação atual
+# e o resultado da rota comprova sentido de retorno (RU). Se Torre/COTEC ou RU
+# forem confirmados depois, o ponto atual muda e a regra da Biblioteca deixa
+# automaticamente de participar do cálculo.
 ETA_RETORNO_RU_MINUTOS = {
     "ponto_externo_2": 25,
     "portao_1": 20,
-    "biblioteca": 15,
+    "biblioteca": 10,
     "torre_cotec": 5,
     "ru": 2,
 }
