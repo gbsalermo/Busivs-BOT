@@ -7,6 +7,7 @@ from estado_bus import BusState as _BusStateBase
 from regras import agora_local, estimar_chegada_portao_1
 from volta_referencia import ultima_saida_oficial, viagem_por_referencia
 
+MAX_AVISOS_POR_VOLTA = 2
 TEMPO_NORMAL_PRIMEIRO_MIN = 5
 TEMPO_NORMAL_SEGUNDO_MIN = 15
 TEMPO_PICO_PRIMEIRO_MIN = 10
@@ -73,6 +74,18 @@ class BusState(_BusStateBase):
         if not viagem:
             return {"enviar": False}
 
+        chave_volta = _chave_volta(viagem, agora)
+
+        bruto_contador = await self.ctx.storage.get("engajamento_teste_contador_volta")
+        try:
+            contador = json.loads(bruto_contador) if bruto_contador else {}
+        except Exception:
+            contador = {}
+        if contador.get("chave_volta") != chave_volta:
+            contador = {"chave_volta": chave_volta, "avisos": 0}
+        if int(contador.get("avisos", 0)) >= MAX_AVISOS_POR_VOLTA:
+            return {"enviar": False}
+
         saida = _momento(viagem["hora"], agora)
         confirmacao = _dt(estado.get("horario"))
         confirmacao_valida = bool(confirmacao and confirmacao.date() == agora.date() and confirmacao >= saida)
@@ -113,7 +126,6 @@ class BusState(_BusStateBase):
                 consulta = json.loads(bruto) if bruto else None
             except Exception:
                 consulta = None
-            chave_volta = _chave_volta(viagem, agora)
             if consulta and consulta.get("chave") == chave_volta and str(consulta.get("telegram_id")) == str(admin_id):
                 consultado_em = _dt(consulta.get("consultado_em"))
                 if consultado_em and consultado_em >= base_tempo and agora - consultado_em <= timedelta(minutes=JANELA_CONSULTA_MIN):
@@ -127,6 +139,9 @@ class BusState(_BusStateBase):
             "engajamento_teste_estagio",
             json.dumps({"chave_lacuna": chave_lacuna, "estagio": proximo_estagio}, ensure_ascii=False),
         )
+        contador["avisos"] = int(contador.get("avisos", 0)) + 1
+        await self.ctx.storage.put("engajamento_teste_contador_volta", json.dumps(contador, ensure_ascii=False))
+
         return {
             "enviar": True,
             "telegram_id": str(admin_id),
@@ -135,6 +150,7 @@ class BusState(_BusStateBase):
             "limite": primeiro if proximo_estagio == 1 else segundo,
             "chave_lacuna": chave_lacuna,
             "origem": origem,
+            "avisos_na_volta": contador["avisos"],
         }
 
 
