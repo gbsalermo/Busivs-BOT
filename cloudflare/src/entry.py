@@ -12,7 +12,53 @@ def teclado_localizacao():
     }
 
 
+def teclado_menu_com_controle(micro_ativo=False, admin=False, principal_ativo=True):
+    teclado = _core.teclado_menu(micro_ativo, admin, principal_ativo)
+    if not admin:
+        return teclado
+
+    linhas = list(teclado.get("inline_keyboard", []))
+    botao = [{"text": "↩️ Retornar à volta anterior", "callback_data": "admin_volta_anterior"}]
+    indice_ajuda = next(
+        (i for i, linha in enumerate(linhas) if any(b.get("callback_data") == "ajuda" for b in linha)),
+        len(linhas),
+    )
+    linhas.insert(indice_ajuda, botao)
+    return {"inline_keyboard": linhas}
+
+
 class Default(_core.Default):
+    async def _menu(self, chat_id, telegram_id=None, boas_vindas=False):
+        status_micro = await self._status_micro()
+        status_principal = await self._status_principal()
+        admin = self._telegram_admin(telegram_id)
+
+        if boas_vindas:
+            await _core.enviar_mensagem(
+                self.env.TELEGRAM_BOT_TOKEN,
+                chat_id,
+                "👋 Bem-vindo ao BUSIVS!\n\nEm caso de dúvidas, clique em ❓ Ajuda ou fale com o administrador.",
+            )
+
+        envio = await _core.enviar_mensagem(
+            self.env.TELEGRAM_BOT_TOKEN,
+            chat_id,
+            "🚌 BUSIVS BOT\n\nEscolha uma opção:",
+            reply_markup=teclado_menu_com_controle(
+                status_micro.get("ativo"),
+                admin,
+                status_principal.get("ativo"),
+            ),
+        )
+        avisos = await self._avisos_ativos()
+        if avisos:
+            return await _core.enviar_mensagem(
+                self.env.TELEGRAM_BOT_TOKEN,
+                chat_id,
+                _core.texto_avisos(avisos),
+            )
+        return envio
+
     async def _onde(self, chat_id):
         principal = await self._estado().localizacao()
         texto = "🚌 <b>CIRCULAR PRINCIPAL</b>\n\n" + principal["texto"]
@@ -43,3 +89,26 @@ class Default(_core.Default):
             parse_mode="HTML",
             reply_markup=teclado_localizacao(),
         )
+
+    async def _acao(self, acao, chat_id, telegram_id=None):
+        if acao == "admin_volta_anterior":
+            if not self._telegram_admin(telegram_id):
+                return {"ok_http": True, "status": 200, "telegram": {"ok": True}}
+
+            resultado = await self._estado().retornar_volta_anterior()
+            if not resultado.get("ok"):
+                texto = "⚠️ Não há uma volta anterior disponível para selecionar."
+            else:
+                texto = (
+                    "↩️ Referência ajustada manualmente.\n\n"
+                    f"🕐 Volta atual: {resultado['hora']} — {resultado.get('origem', '')}\n"
+                    "📌 As confirmações já registradas foram mantidas."
+                )
+            return await _core.enviar_mensagem(
+                self.env.TELEGRAM_BOT_TOKEN,
+                chat_id,
+                texto,
+                reply_markup=teclado_localizacao(),
+            )
+
+        return await super()._acao(acao, chat_id, telegram_id)
