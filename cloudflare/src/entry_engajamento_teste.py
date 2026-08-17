@@ -132,9 +132,6 @@ class BusState(_BusStateBase):
 
         avisos_volta = int(contador.get("avisos", 0))
 
-        # Primeiro lote: enquanto o fallback ainda não chegou, uma checagem sem
-        # candidato não encerra o estágio. Isso protege contra corrida entre a
-        # gravação da consulta e o cron do mesmo minuto.
         if (
             not fluxo.get("primeiro_encerrado")
             and avisos_volta < MAX_AVISOS_POR_VOLTA
@@ -155,8 +152,6 @@ class BusState(_BusStateBase):
                 }
             return {"enviar": False}
 
-        # Fallback: ao chegar neste ponto encerra definitivamente o primeiro
-        # fluxo, tenha havido envio principal ou não, evitando sobreposição.
         if not fluxo.get("autor_enviado") and agora >= autor_em:
             fluxo["primeiro_encerrado"] = True
             fluxo["autor_enviado"] = True
@@ -171,9 +166,6 @@ class BusState(_BusStateBase):
                     "avisos_na_volta": avisos_volta,
                 }
 
-        # Segundo lote: também só é marcado como concluído quando realmente
-        # existe candidato. Depois do horário previsto ele pode ser rechecado,
-        # sempre usando o corte fixo de 1 minuto antes do disparo.
         if (
             not fluxo.get("segundo_enviado")
             and avisos_volta < MAX_AVISOS_POR_VOLTA
@@ -215,7 +207,7 @@ class Default(_entry.Default):
             )
         return await super()._acao(acao, chat_id, telegram_id)
 
-    async def scheduled(self, controller):
+    async def scheduled(self, controller, env, ctx):
         admin_id = str(self.env.ADMIN_TELEGRAM_ID).strip()
         candidato = await self._estado().candidato_engajamento_teste(admin_id)
         if not candidato.get("enviar"):
