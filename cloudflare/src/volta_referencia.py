@@ -5,6 +5,7 @@ from regras import estimar_chegada_portao_1
 
 JANELA_RU_REFERENCIA_MINUTOS = 15
 JANELA_TRANSICAO_PROVAVEL_MINUTOS = 10
+LIMITE_REFERENCIA_SEM_CONFIRMACAO_MINUTOS = 15
 
 
 def _momento(hora, referencia):
@@ -96,33 +97,62 @@ def _confirmacao_em(estado):
         return None
 
 
+def _confirmacao_sustenta_referencia_atual(estado, proxima, agora):
+    confirmado_em = _confirmacao_em(estado)
+    if confirmado_em is None or confirmado_em.date() != agora.date():
+        return False
+    saida_proxima = _momento(proxima["hora"], agora)
+    return confirmado_em >= saida_proxima
+
+
 def proxima_volta_provavel(estado, agora):
     atual = viagem_por_referencia(estado)
     proxima = proxima_apos_referencia(estado)
     if atual is None or proxima is None:
         return None
 
-    resultado = (estado or {}).get("resultado_rota") or {}
-    if resultado.get("sentido") != "RU":
-        return None
-
     confirmado_em = _confirmacao_em(estado)
-    if confirmado_em is None or confirmado_em.date() != agora.date():
-        return None
-
     saida_proxima = _momento(proxima["hora"], agora)
-    liberacao_por_retorno = confirmado_em + timedelta(minutes=JANELA_TRANSICAO_PROVAVEL_MINUTOS)
-    liberacao = max(saida_proxima, liberacao_por_retorno)
-    if agora < liberacao:
+    if agora < saida_proxima:
         return None
 
-    return {
-        "viagem_anterior": atual,
-        "viagem_provavel": proxima,
-        "confirmado_em": confirmado_em,
-        "liberado_em": liberacao,
-        "ponto_id": (estado or {}).get("ponto_atual"),
-    }
+    resultado = (estado or {}).get("resultado_rota") or {}
+    retorno_claro = resultado.get("sentido") == "RU"
+
+    # Caso forte: há confirmação clara de retorno. Dez minutos depois dessa
+    # confirmação (e nunca antes da próxima saída oficial), a próxima volta já
+    # pode ser exibida como provavelmente em andamento.
+    if retorno_claro and confirmado_em is not None and confirmado_em.date() == agora.date():
+        liberacao_retorno = max(
+            saida_proxima,
+            confirmado_em + timedelta(minutes=JANELA_TRANSICAO_PROVAVEL_MINUTOS),
+        )
+        if agora >= liberacao_retorno:
+            return {
+                "viagem_anterior": atual,
+                "viagem_provavel": proxima,
+                "confirmado_em": confirmado_em,
+                "liberado_em": liberacao_retorno,
+                "ponto_id": (estado or {}).get("ponto_atual"),
+                "motivo": "retorno_confirmado",
+            }
+
+    # Segurança geral: uma referência, inclusive manual, nunca congela a grade.
+    # Sem confirmação nova após o horário da próxima saída, ela perde força no
+    # máximo 15 minutos depois e a próxima volta passa a ser provável. Isso
+    # mantém o comportamento automático mesmo quando não houve voto no retorno.
+    limite = saida_proxima + timedelta(minutes=LIMITE_REFERENCIA_SEM_CONFIRMACAO_MINUTOS)
+    if agora >= limite and not _confirmacao_sustenta_referencia_atual(estado, proxima, agora):
+        return {
+            "viagem_anterior": atual,
+            "viagem_provavel": proxima,
+            "confirmado_em": confirmado_em,
+            "liberado_em": limite,
+            "ponto_id": (estado or {}).get("ponto_atual"),
+            "motivo": "limite_sem_confirmacao",
+        }
+
+    return None
 
 
 def resumo_referenciado(estado, agora, resumo_padrao):
@@ -140,6 +170,17 @@ def resumo_referenciado(estado, agora, resumo_padrao):
     if provavel:
         viagem = provavel["viagem_provavel"]
         p = estimar_chegada_portao_1(viagem["hora"])
+        motivo = provavel.get("motivo")
+        if motivo == "retorno_confirmado":
+            explicacao = [
+                "⬅️ A última confirmação indicava o ônibus no percurso de retorno.",
+                f"🕐 Já passaram pelo menos {JANELA_TRANSICAO_PROVAVEL_MINUTOS} min desde essa confirmação.",
+            ]
+        else:
+            explicacao = [
+                "⏱️ A referência anterior atingiu o limite operacional sem nova confirmação.",
+                f"🕐 Já passaram {LIMITE_REFERENCIA_SEM_CONFIRMACAO_MINUTOS} min da próxima saída oficial.",
+            ]
         return "\n".join([
             "🚌 <b>Circular UFRB — Principal</b>",
             "",
@@ -148,8 +189,7 @@ def resumo_referenciado(estado, agora, resumo_padrao):
             f"🚪 Referência do Portão 1: <b>{p['inicio']}–{p['fim']}</b>",
             "",
             f"📌 Última volta confirmada: <b>{atual['hora']}</b> — {origem}",
-            "⬅️ A última confirmação indicava o ônibus no percurso de retorno.",
-            f"🕐 Sem nova confirmação há pelo menos {JANELA_TRANSICAO_PROVAVEL_MINUTOS} min após esse retorno.",
+            *explicacao,
             "ℹ️ A nova volta é uma inferência operacional, não uma confirmação de passagem.",
         ])
 
@@ -160,7 +200,7 @@ def resumo_referenciado(estado, agora, resumo_padrao):
         f"🕐 Referência: <b>{atual['hora']}</b> — {origem}",
         f"🚪 Referência do Portão 1: <b>{previsao['inicio']}–{previsao['fim']}</b>",
         f"📌 Esta referência está {modo}.",
-        "ℹ️ Horários posteriores não substituem esta volta enquanto houver uma referência confirmada.",
+        "ℹ️ Ela continua valendo enquanto ainda estiver dentro da janela operacional ou houver confirmação que a sustente.",
     ]
 
     if proxima:
