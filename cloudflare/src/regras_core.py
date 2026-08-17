@@ -17,7 +17,8 @@ def _estimar_chegada_portao_1_sem_pico_13h(hora_saida):
     pico = (
         hora_saida not in {"13:00", "13:25"}
         and (
-            _base._minutos("07:30") <= m <= _base._minutos("08:00")
+            hora_saida == "07:25"
+            or _base._minutos("07:30") <= m <= _base._minutos("08:00")
             or _base._minutos("11:30") <= m <= _base._minutos("14:00")
             or _base._minutos("17:30") <= m <= _base._minutos("18:15")
         )
