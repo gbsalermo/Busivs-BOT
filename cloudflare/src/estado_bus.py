@@ -1,6 +1,6 @@
 import estado_bus_core as _core
 
-from dados import HORARIOS
+from dados import BLOCOS_PRINCIPAL, HORARIOS
 from transicao_bloco import confirmacao_inicia_novo_bloco
 from volta_referencia import (
     aplicar_referencia,
@@ -11,6 +11,24 @@ from volta_referencia import (
     ultima_saida_oficial,
     viagem_por_referencia,
 )
+
+
+def _minutos(hora):
+    h, m = map(int, hora.split(":"))
+    return h * 60 + m
+
+
+def _bloco_por_referencia(hora):
+    if not hora:
+        return None
+    minuto = _minutos(hora)
+    candidatos = []
+    for bloco in BLOCOS_PRINCIPAL:
+        inicio = _minutos(bloco["inicio"])
+        fim = _minutos(bloco["ultima"])
+        if inicio <= minuto <= fim:
+            candidatos.append(bloco)
+    return candidatos[0] if candidatos else None
 
 
 class BusState(_core.BusState):
@@ -99,4 +117,54 @@ class BusState(_core.BusState):
             "ok": True,
             "hora": viagem["hora"],
             "origem": viagem.get("origem", ""),
+        }
+
+    async def encerrar_bloco_admin(self):
+        estado = await self._carregar()
+        agora = _core.agora_local()
+        referencia = estado.get("saida_referencia")
+
+        if referencia:
+            bloco = _bloco_por_referencia(referencia)
+        else:
+            minuto = agora.hour * 60 + agora.minute
+            candidatos = [
+                bloco for bloco in BLOCOS_PRINCIPAL
+                if _minutos(bloco["inicio"]) <= minuto
+            ]
+            bloco = max(candidatos, key=lambda b: _minutos(b["inicio"])) if candidatos else None
+
+        if bloco is None:
+            return {"ok": False, "motivo": "sem_bloco"}
+
+        historico = list(estado.get("historico", []))
+        historico.append({
+            "ponto_id": "garagem",
+            "horario": agora.isoformat(),
+            "telegram_id": "admin",
+        })
+
+        estado.update({
+            "ponto_anterior": estado.get("ponto_atual"),
+            "ponto_atual": "garagem",
+            "horario": agora.isoformat(),
+            "resultado_rota": {
+                "operacao_encerrada_bloco": True,
+                "garagem_confirmada": True,
+                "bloco_id": bloco["id"],
+                "inicio_bloco": bloco["inicio"],
+                "ultima_volta": bloco["ultima"],
+                "fim_previsto": agora.isoformat(),
+            },
+            "historico": historico[-40:],
+        })
+        estado.pop("saida_referencia", None)
+        estado.pop("saida_referencia_manual", None)
+        await self._salvar(estado)
+
+        return {
+            "ok": True,
+            "bloco_id": bloco["id"],
+            "inicio": bloco["inicio"],
+            "ultima": bloco["ultima"],
         }
