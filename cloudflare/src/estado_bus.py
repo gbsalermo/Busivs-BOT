@@ -3,6 +3,7 @@ import estado_bus_core as _core
 from transicao_bloco import confirmacao_inicia_novo_bloco
 from volta_referencia import (
     aplicar_referencia,
+    proxima_volta_provavel,
     retornar_volta_anterior as _retornar_volta_anterior,
     resumo_referenciado,
     saida_ru_recente,
@@ -56,8 +57,21 @@ class BusState(_core.BusState):
     async def localizacao(self):
         resposta = await super().localizacao()
         estado = await self._carregar()
+        agora = _core.agora_local()
         viagem = viagem_por_referencia(estado)
-        if viagem:
+        provavel = proxima_volta_provavel(estado, agora)
+
+        if provavel:
+            atual = provavel["viagem_anterior"]
+            proxima = provavel["viagem_provavel"]
+            resposta["texto"] += (
+                "\n\n🟡 Próxima volta provavelmente em andamento."
+                f"\n🕐 Referência provável: {proxima['hora']} — {proxima.get('origem', '')}."
+                f"\n📌 Última volta confirmada: {atual['hora']} — {atual.get('origem', '')}."
+                "\n⬅️ A última confirmação indicava retorno ao RU."
+                "\nℹ️ Essa transição é estimada; uma nova confirmação tem prioridade."
+            )
+        elif viagem:
             modo = "ajustada manualmente" if estado.get("saida_referencia_manual") else "confirmada"
             resposta["texto"] += (
                 "\n\n🧭 Referência da volta: "
