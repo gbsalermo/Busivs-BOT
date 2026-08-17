@@ -1,6 +1,6 @@
 import estado_bus_core as _core
 
-from dados import BLOCOS_PRINCIPAL, HORARIOS
+from dados import BLOCOS_PRINCIPAL, HORARIOS, PONTOS, ROTA
 from transicao_bloco import confirmacao_inicia_novo_bloco
 from volta_referencia import (
     aplicar_referencia,
@@ -29,6 +29,67 @@ def _bloco_por_referencia(hora):
         if inicio <= minuto <= fim:
             candidatos.append(bloco)
     return candidatos[0] if candidatos else None
+
+
+def _proximo_manual(indice):
+    if indice + 1 >= len(ROTA):
+        return None
+    item = ROTA[indice + 1]
+    ponto = PONTOS[item["ponto_id"]]
+    proximo = {
+        "id": ponto["id"],
+        "nome": ponto["nome"],
+        "opcional": item.get("opcional", ponto.get("opcional", False)),
+    }
+    if proximo["opcional"]:
+        for proximo_indice in range(indice + 2, len(ROTA)):
+            alternativa = ROTA[proximo_indice]
+            if alternativa.get("opcional", False):
+                continue
+            ponto_alternativo = PONTOS[alternativa["ponto_id"]]
+            proximo["alternativa"] = {
+                "id": ponto_alternativo["id"],
+                "nome": ponto_alternativo["nome"],
+            }
+            break
+    return proximo
+
+
+def _resultado_correcao_manual(ponto_id, sentido):
+    if ponto_id not in PONTOS:
+        return None
+
+    if sentido == "GARAGEM":
+        if ponto_id == "fitotecnia":
+            proximo = {
+                "id": "solos_neas_florestal",
+                "nome": PONTOS["solos_neas_florestal"]["nome"],
+                "opcional": False,
+            }
+        elif ponto_id == "solos_neas_florestal":
+            proximo = {"id": "garagem", "nome": "Garagem", "opcional": False}
+        else:
+            return None
+        return {
+            "retorno_garagem": True,
+            "correcao_admin": True,
+            "ponto_atual_id": ponto_id,
+            "ponto_atual": PONTOS[ponto_id]["nome"],
+            "sentido": "GARAGEM",
+            "proximo": proximo,
+        }
+
+    for indice, item in enumerate(ROTA):
+        if item["ponto_id"] == ponto_id and item.get("sentido_apos") == sentido:
+            return {
+                "correcao_admin": True,
+                "ponto_atual_id": ponto_id,
+                "ponto_atual": PONTOS[ponto_id]["nome"],
+                "indice_atual": indice,
+                "sentido": sentido,
+                "proximo": _proximo_manual(indice),
+            }
+    return None
 
 
 class BusState(_core.BusState):
@@ -117,6 +178,41 @@ class BusState(_core.BusState):
             "ok": True,
             "hora": viagem["hora"],
             "origem": viagem.get("origem", ""),
+        }
+
+    async def corrigir_ponto_sentido_admin(self, ponto_id, sentido):
+        sentido = str(sentido or "").upper()
+        resultado_rota = _resultado_correcao_manual(ponto_id, sentido)
+        if resultado_rota is None:
+            return {"ok": False, "motivo": "combinacao_invalida"}
+
+        estado = await self._carregar()
+        agora = _core.agora_local()
+        anterior = estado.get("ponto_atual")
+        historico = list(estado.get("historico", []))
+        historico.append({
+            "ponto_id": ponto_id,
+            "horario": agora.isoformat(),
+            "telegram_id": "admin",
+            "correcao_manual": True,
+            "sentido": sentido,
+        })
+
+        estado.update({
+            "ponto_anterior": anterior,
+            "ponto_atual": ponto_id,
+            "horario": agora.isoformat(),
+            "telegram_id": "admin",
+            "resultado_rota": resultado_rota,
+            "historico": historico[-40:],
+        })
+        await self._salvar(estado)
+
+        return {
+            "ok": True,
+            "ponto_id": ponto_id,
+            "ponto": PONTOS[ponto_id]["nome"],
+            "sentido": sentido,
         }
 
     async def encerrar_bloco_admin(self):
