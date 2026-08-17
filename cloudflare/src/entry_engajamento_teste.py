@@ -78,6 +78,11 @@ class BusState(_BusStateBase):
         if agora < base_tempo + timedelta(minutes=limite):
             return {"enviar": False}
 
+        ultimo_autor = estado.get("telegram_id")
+        if confirmacao and ultimo_autor is not None and str(ultimo_autor) == str(admin_id):
+            await self.ctx.storage.put("engajamento_teste_disparado", chave)
+            return {"enviar": True, "telegram_id": str(admin_id), "pico": pico, "limite": limite, "chave": chave, "origem": "ultima_confirmacao"}
+
         bruto = await self.ctx.storage.get("engajamento_teste_consulta")
         try:
             consulta = json.loads(bruto) if bruto else None
@@ -96,7 +101,7 @@ class BusState(_BusStateBase):
             return {"enviar": False}
 
         await self.ctx.storage.put("engajamento_teste_disparado", chave)
-        return {"enviar": True, "telegram_id": str(admin_id), "pico": pico, "limite": limite, "chave": chave}
+        return {"enviar": True, "telegram_id": str(admin_id), "pico": pico, "limite": limite, "chave": chave, "origem": "consulta"}
 
 
 class Default(_entry.Default):
