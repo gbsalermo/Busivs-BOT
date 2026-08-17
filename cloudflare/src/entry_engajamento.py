@@ -1,4 +1,5 @@
 import json
+import random
 from datetime import datetime, timedelta
 
 import entry_admin as _entry
@@ -10,10 +11,12 @@ from volta_referencia import ultima_saida_oficial, viagem_por_referencia
 MAX_CONVIDADOS = 10
 MAX_AVISOS_POR_VOLTA = 2
 TEMPO_NORMAL_PRIMEIRO_MIN = 5
+TEMPO_NORMAL_SEGUNDO_MIN = 15
 TEMPO_PICO_PRIMEIRO_MIN = 10
+TEMPO_PICO_SEGUNDO_MIN = 20
 TEMPO_AUTOR_NORMAL_MIN = 8
 TEMPO_AUTOR_PICO_MIN = 13
-INTERVALO_ENTRE_AVISOS_MIN = 10
+ANTECEDENCIA_CORTE_MIN = 1
 JANELA_CONSULTA_MIN = 30
 
 
@@ -65,8 +68,34 @@ class BusState(_BusStateBase):
         consultas = [c for c in consultas if c.get("chave") == chave]
         consultas = [c for c in consultas if str(c.get("telegram_id")) != str(telegram_id)]
         consultas.append({"chave": chave, "telegram_id": str(telegram_id), "consultado_em": agora.isoformat()})
-        await self.ctx.storage.put("engajamento_consultas", json.dumps(consultas[-100:], ensure_ascii=False))
+        await self.ctx.storage.put("engajamento_consultas", json.dumps(consultas[-150:], ensure_ascii=False))
         return {"ok": True, "chave": chave}
+
+    async def _consultas_da_janela(self, chave_volta, inicio, corte, admin_id=None):
+        bruto = await self.ctx.storage.get("engajamento_consultas")
+        try:
+            consultas = json.loads(bruto) if bruto else []
+        except Exception:
+            consultas = []
+
+        ids = []
+        for consulta in consultas:
+            if consulta.get("chave") != chave_volta:
+                continue
+            momento = _dt(consulta.get("consultado_em"))
+            if not momento or momento < inicio or momento > corte:
+                continue
+            if corte - momento > timedelta(minutes=JANELA_CONSULTA_MIN):
+                continue
+            telegram_id = str(consulta.get("telegram_id"))
+            if admin_id is not None and telegram_id != str(admin_id):
+                continue
+            if telegram_id not in ids:
+                ids.append(telegram_id)
+
+        if len(ids) <= MAX_CONVIDADOS:
+            return ids
+        return random.sample(ids, MAX_CONVIDADOS)
 
     async def candidatos_engajamento(self, admin_id=None):
         agora = agora_local()
@@ -87,8 +116,6 @@ class BusState(_BusStateBase):
             contador = {}
         if contador.get("chave_volta") != chave_volta:
             contador = {"chave_volta": chave_volta, "avisos": 0}
-        if int(contador.get("avisos", 0)) >= MAX_AVISOS_POR_VOLTA:
-            return {"enviar": False}
 
         saida = _momento(viagem["hora"], agora)
         confirmacao = _dt(estado.get("horario"))
@@ -102,78 +129,87 @@ class BusState(_BusStateBase):
         except Exception:
             fluxo = {}
         if fluxo.get("chave_lacuna") != chave_lacuna:
-            fluxo = {"chave_lacuna": chave_lacuna, "avisos_lacuna": 0, "ultimo_aviso_em": None}
+            fluxo = {
+                "chave_lacuna": chave_lacuna,
+                "primeiro_enviado": False,
+                "autor_enviado": False,
+                "segundo_enviado": False,
+            }
 
-        avisos_lacuna = int(fluxo.get("avisos_lacuna", 0))
-        ultimo_aviso_em = _dt(fluxo.get("ultimo_aviso_em"))
         pico = bool(estimar_chegada_portao_1(viagem["hora"])["pico"])
-        primeiro = TEMPO_PICO_PRIMEIRO_MIN if pico else TEMPO_NORMAL_PRIMEIRO_MIN
-        fallback_autor = TEMPO_AUTOR_PICO_MIN if pico else TEMPO_AUTOR_NORMAL_MIN
+        primeiro_min = TEMPO_PICO_PRIMEIRO_MIN if pico else TEMPO_NORMAL_PRIMEIRO_MIN
+        segundo_min = TEMPO_PICO_SEGUNDO_MIN if pico else TEMPO_NORMAL_SEGUNDO_MIN
+        autor_min = TEMPO_AUTOR_PICO_MIN if pico else TEMPO_AUTOR_NORMAL_MIN
 
-        if avisos_lacuna == 0:
-            if agora < base_tempo + timedelta(minutes=primeiro):
-                return {"enviar": False}
-            inicio_candidatos = base_tempo
-        else:
-            if ultimo_aviso_em is None or agora < ultimo_aviso_em + timedelta(minutes=INTERVALO_ENTRE_AVISOS_MIN):
-                return {"enviar": False}
-            inicio_candidatos = ultimo_aviso_em
+        primeiro_em = base_tempo + timedelta(minutes=primeiro_min)
+        segundo_em = base_tempo + timedelta(minutes=segundo_min)
+        autor_em = base_tempo + timedelta(minutes=autor_min)
+        corte_primeiro = primeiro_em - timedelta(minutes=ANTECEDENCIA_CORTE_MIN)
+        corte_segundo = segundo_em - timedelta(minutes=ANTECEDENCIA_CORTE_MIN)
 
-        bruto = await self.ctx.storage.get("engajamento_consultas")
-        try:
-            consultas = json.loads(bruto) if bruto else []
-        except Exception:
-            consultas = []
+        avisos_volta = int(contador.get("avisos", 0))
 
-        recentes = []
-        for consulta in consultas:
-            if consulta.get("chave") != chave_volta:
-                continue
-            momento = _dt(consulta.get("consultado_em"))
-            if not momento or momento < inicio_candidatos or agora - momento > timedelta(minutes=JANELA_CONSULTA_MIN):
-                continue
-            telegram_id = str(consulta.get("telegram_id"))
-            if admin_id is not None and telegram_id != str(admin_id):
-                continue
-            recentes.append((momento, telegram_id))
+        # 1) Primeiro lote: candidatos que consultaram desde a última confirmação
+        # até exatamente 1 minuto antes do horário do disparo.
+        if not fluxo.get("primeiro_enviado") and avisos_volta < MAX_AVISOS_POR_VOLTA and agora >= primeiro_em:
+            ids = await self._consultas_da_janela(chave_volta, base_tempo, corte_primeiro, admin_id)
+            fluxo["primeiro_enviado"] = True
+            await self.ctx.storage.put("engajamento_fluxo", json.dumps(fluxo, ensure_ascii=False))
+            if ids:
+                contador["avisos"] = avisos_volta + 1
+                await self.ctx.storage.put("engajamento_contador_volta", json.dumps(contador, ensure_ascii=False))
+                return {
+                    "enviar": True,
+                    "ids": ids,
+                    "pico": pico,
+                    "origem": "consultas_primeiro",
+                    "aviso_principal": 1,
+                    "avisos_na_volta": contador["avisos"],
+                    "chave_lacuna": chave_lacuna,
+                }
+            return {"enviar": False}
 
-        recentes.sort(reverse=True)
-        ids = []
-        for _, telegram_id in recentes:
-            if telegram_id not in ids:
-                ids.append(telegram_id)
-            if len(ids) >= MAX_CONVIDADOS:
-                break
-
-        origem = "consultas"
-        if not ids:
+        # 2) Fallback intermediário ao autor da última confirmação.
+        # Não conta como um dos dois avisos principais da volta.
+        if fluxo.get("primeiro_enviado") and not fluxo.get("autor_enviado") and agora >= autor_em:
+            fluxo["autor_enviado"] = True
+            await self.ctx.storage.put("engajamento_fluxo", json.dumps(fluxo, ensure_ascii=False))
             autor = estado.get("telegram_id") if confirmacao_valida else None
             autor = str(autor) if autor is not None else None
             autor_valido = bool(autor and autor != "admin" and (admin_id is None or autor == str(admin_id)))
-            marco_autor = base_tempo + timedelta(minutes=fallback_autor) if avisos_lacuna == 0 else ultimo_aviso_em + timedelta(minutes=INTERVALO_ENTRE_AVISOS_MIN)
-            if not autor_valido or agora < marco_autor:
-                return {"enviar": False}
-            ids = [autor]
-            origem = "autor_ultima_confirmacao"
+            if autor_valido:
+                return {
+                    "enviar": True,
+                    "ids": [autor],
+                    "pico": pico,
+                    "origem": "autor_ultima_confirmacao",
+                    "fallback": True,
+                    "avisos_na_volta": avisos_volta,
+                    "chave_lacuna": chave_lacuna,
+                }
+            return {"enviar": False}
 
-        fluxo = {
-            "chave_lacuna": chave_lacuna,
-            "avisos_lacuna": avisos_lacuna + 1,
-            "ultimo_aviso_em": agora.isoformat(),
-        }
-        await self.ctx.storage.put("engajamento_fluxo", json.dumps(fluxo, ensure_ascii=False))
-        contador["avisos"] = int(contador.get("avisos", 0)) + 1
-        await self.ctx.storage.put("engajamento_contador_volta", json.dumps(contador, ensure_ascii=False))
+        # 3) Segundo lote: volta a considerar toda a janela desde a última
+        # confirmação, fechando a seleção 1 minuto antes do segundo disparo.
+        if not fluxo.get("segundo_enviado") and avisos_volta < MAX_AVISOS_POR_VOLTA and agora >= segundo_em:
+            ids = await self._consultas_da_janela(chave_volta, base_tempo, corte_segundo, admin_id)
+            fluxo["segundo_enviado"] = True
+            await self.ctx.storage.put("engajamento_fluxo", json.dumps(fluxo, ensure_ascii=False))
+            if ids:
+                contador["avisos"] = avisos_volta + 1
+                await self.ctx.storage.put("engajamento_contador_volta", json.dumps(contador, ensure_ascii=False))
+                return {
+                    "enviar": True,
+                    "ids": ids,
+                    "pico": pico,
+                    "origem": "consultas_segundo",
+                    "aviso_principal": 2,
+                    "avisos_na_volta": contador["avisos"],
+                    "chave_lacuna": chave_lacuna,
+                }
+            return {"enviar": False}
 
-        return {
-            "enviar": True,
-            "ids": ids[:MAX_CONVIDADOS],
-            "pico": pico,
-            "origem": origem,
-            "avisos_na_lacuna": fluxo["avisos_lacuna"],
-            "avisos_na_volta": contador["avisos"],
-            "chave_lacuna": chave_lacuna,
-        }
+        return {"enviar": False}
 
 
 class Default(_entry.Default):
