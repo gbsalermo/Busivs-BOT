@@ -95,21 +95,29 @@ class BusState(_BusStateBase):
             momento = _dt(consulta.get("consultado_em"))
             if not momento or momento < inicio_consultas or agora - momento > timedelta(minutes=JANELA_CONSULTA_MIN):
                 continue
-            if admin_id is not None and str(consulta.get("telegram_id")) != str(admin_id):
+            telegram_id = str(consulta.get("telegram_id"))
+            if admin_id is not None and telegram_id != str(admin_id):
                 continue
-            recentes.append((momento, str(consulta.get("telegram_id"))))
-        if not recentes:
-            return {"enviar": False}
+            recentes.append((momento, telegram_id))
+
+        ids = []
+        ultimo_autor = estado.get("telegram_id")
+        if confirmacao and ultimo_autor is not None:
+            ultimo_autor = str(ultimo_autor)
+            if ultimo_autor != "admin" and (admin_id is None or ultimo_autor == str(admin_id)):
+                ids.append(ultimo_autor)
 
         recentes.sort(reverse=True)
-        ids = []
         for _, telegram_id in recentes:
             if telegram_id not in ids:
                 ids.append(telegram_id)
             if len(ids) >= MAX_CONVIDADOS:
                 break
+        if not ids:
+            return {"enviar": False}
+
         await self.ctx.storage.put("engajamento_disparado", chave)
-        return {"enviar": True, "ids": ids, "pico": pico, "limite": limite, "chave": chave}
+        return {"enviar": True, "ids": ids[:MAX_CONVIDADOS], "pico": pico, "limite": limite, "chave": chave}
 
 
 class Default(_entry.Default):
