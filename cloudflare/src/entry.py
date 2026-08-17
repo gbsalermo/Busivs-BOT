@@ -63,6 +63,7 @@ def teclado_referencias():
         for h in horarios
     ]
     linhas = [botoes[i:i + 3] for i in range(0, len(botoes), 3)]
+    linhas.append([{"text": "🅿️ Garagem / Encerrar bloco", "callback_data": "admin_ref_garagem"}])
     linhas.append([{"text": "⬅️ Voltar", "callback_data": "onde"}])
     return {"inline_keyboard": linhas}, bloco
 
@@ -109,6 +110,24 @@ class Default(_core.Default):
                 chat_id,
                 f"🧭 Escolha a volta de referência do bloco {bloco['inicio']}–{bloco['ultima']}:",
                 reply_markup=teclado,
+            )
+
+        if acao == "admin_ref_garagem":
+            if not self._telegram_admin(telegram_id):
+                return {"ok_http": True, "status": 200, "telegram": {"ok": True}}
+            resultado = await self._estado().encerrar_bloco_admin()
+            if not resultado.get("ok"):
+                texto = "⚠️ Não consegui identificar um bloco para encerrar."
+            else:
+                texto = (
+                    "🅿️ Ônibus marcado na Garagem.\n\n"
+                    f"✅ Bloco {resultado['inicio']}–{resultado['ultima']} encerrado manualmente."
+                )
+            return await _core.enviar_mensagem(
+                self.env.TELEGRAM_BOT_TOKEN,
+                chat_id,
+                texto,
+                reply_markup=teclado_localizacao(True),
             )
 
         if acao.startswith("admin_ref_"):
