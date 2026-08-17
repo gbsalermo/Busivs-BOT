@@ -97,6 +97,7 @@ class BusState(_BusStateBase):
             fluxo = {
                 "chave_lacuna": chave_lacuna,
                 "primeiro_enviado": False,
+                "primeiro_encerrado": False,
                 "autor_enviado": False,
                 "segundo_enviado": False,
             }
@@ -131,11 +132,18 @@ class BusState(_BusStateBase):
 
         avisos_volta = int(contador.get("avisos", 0))
 
-        if not fluxo.get("primeiro_enviado") and avisos_volta < MAX_AVISOS_POR_VOLTA and agora >= primeiro_em:
-            elegivel = consulta_valida_ate(corte_primeiro)
-            fluxo["primeiro_enviado"] = True
-            await self.ctx.storage.put("engajamento_teste_fluxo", json.dumps(fluxo, ensure_ascii=False))
-            if elegivel:
+        # Primeiro lote: enquanto o fallback ainda não chegou, uma checagem sem
+        # candidato não encerra o estágio. Isso protege contra corrida entre a
+        # gravação da consulta e o cron do mesmo minuto.
+        if (
+            not fluxo.get("primeiro_encerrado")
+            and avisos_volta < MAX_AVISOS_POR_VOLTA
+            and primeiro_em <= agora < autor_em
+        ):
+            if consulta_valida_ate(corte_primeiro):
+                fluxo["primeiro_enviado"] = True
+                fluxo["primeiro_encerrado"] = True
+                await self.ctx.storage.put("engajamento_teste_fluxo", json.dumps(fluxo, ensure_ascii=False))
                 contador["avisos"] = avisos_volta + 1
                 await self.ctx.storage.put("engajamento_teste_contador_volta", json.dumps(contador, ensure_ascii=False))
                 return {
@@ -147,7 +155,10 @@ class BusState(_BusStateBase):
                 }
             return {"enviar": False}
 
-        if fluxo.get("primeiro_enviado") and not fluxo.get("autor_enviado") and agora >= autor_em:
+        # Fallback: ao chegar neste ponto encerra definitivamente o primeiro
+        # fluxo, tenha havido envio principal ou não, evitando sobreposição.
+        if not fluxo.get("autor_enviado") and agora >= autor_em:
+            fluxo["primeiro_encerrado"] = True
             fluxo["autor_enviado"] = True
             await self.ctx.storage.put("engajamento_teste_fluxo", json.dumps(fluxo, ensure_ascii=False))
             autor = estado.get("telegram_id") if confirmacao_valida else None
@@ -159,13 +170,18 @@ class BusState(_BusStateBase):
                     "fallback": True,
                     "avisos_na_volta": avisos_volta,
                 }
-            return {"enviar": False}
 
-        if not fluxo.get("segundo_enviado") and avisos_volta < MAX_AVISOS_POR_VOLTA and agora >= segundo_em:
-            elegivel = consulta_valida_ate(corte_segundo)
-            fluxo["segundo_enviado"] = True
-            await self.ctx.storage.put("engajamento_teste_fluxo", json.dumps(fluxo, ensure_ascii=False))
-            if elegivel:
+        # Segundo lote: também só é marcado como concluído quando realmente
+        # existe candidato. Depois do horário previsto ele pode ser rechecado,
+        # sempre usando o corte fixo de 1 minuto antes do disparo.
+        if (
+            not fluxo.get("segundo_enviado")
+            and avisos_volta < MAX_AVISOS_POR_VOLTA
+            and agora >= segundo_em
+        ):
+            if consulta_valida_ate(corte_segundo):
+                fluxo["segundo_enviado"] = True
+                await self.ctx.storage.put("engajamento_teste_fluxo", json.dumps(fluxo, ensure_ascii=False))
                 contador["avisos"] = avisos_volta + 1
                 await self.ctx.storage.put("engajamento_teste_contador_volta", json.dumps(contador, ensure_ascii=False))
                 return {
