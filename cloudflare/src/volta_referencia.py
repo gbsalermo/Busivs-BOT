@@ -1,9 +1,10 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from dados import HORARIOS
 from regras import estimar_chegada_portao_1
 
 JANELA_RU_REFERENCIA_MINUTOS = 15
+JANELA_TRANSICAO_PROVAVEL_MINUTOS = 10
 
 
 def _momento(hora, referencia):
@@ -85,6 +86,45 @@ def proxima_apos_referencia(estado):
     return HORARIOS["principal"][indice + 1]
 
 
+def _confirmacao_em(estado):
+    valor = (estado or {}).get("horario")
+    if not valor:
+        return None
+    try:
+        return datetime.fromisoformat(str(valor))
+    except (TypeError, ValueError):
+        return None
+
+
+def proxima_volta_provavel(estado, agora):
+    atual = viagem_por_referencia(estado)
+    proxima = proxima_apos_referencia(estado)
+    if atual is None or proxima is None:
+        return None
+
+    resultado = (estado or {}).get("resultado_rota") or {}
+    if resultado.get("sentido") != "RU":
+        return None
+
+    confirmado_em = _confirmacao_em(estado)
+    if confirmado_em is None or confirmado_em.date() != agora.date():
+        return None
+
+    saida_proxima = _momento(proxima["hora"], agora)
+    liberacao_por_retorno = confirmado_em + timedelta(minutes=JANELA_TRANSICAO_PROVAVEL_MINUTOS)
+    liberacao = max(saida_proxima, liberacao_por_retorno)
+    if agora < liberacao:
+        return None
+
+    return {
+        "viagem_anterior": atual,
+        "viagem_provavel": proxima,
+        "confirmado_em": confirmado_em,
+        "liberado_em": liberacao,
+        "ponto_id": (estado or {}).get("ponto_atual"),
+    }
+
+
 def resumo_referenciado(estado, agora, resumo_padrao):
     atual = viagem_por_referencia(estado)
     if atual is None:
@@ -92,9 +132,26 @@ def resumo_referenciado(estado, agora, resumo_padrao):
 
     previsao = estimar_chegada_portao_1(atual["hora"])
     proxima = proxima_apos_referencia(estado)
+    provavel = proxima_volta_provavel(estado, agora)
     manual = bool((estado or {}).get("saida_referencia_manual"))
     origem = atual.get("origem", "")
     modo = "ajustada manualmente pelo administrador" if manual else "fixada pelas confirmações de passagem"
+
+    if provavel:
+        viagem = provavel["viagem_provavel"]
+        p = estimar_chegada_portao_1(viagem["hora"])
+        return "\n".join([
+            "🚌 <b>Circular UFRB — Principal</b>",
+            "",
+            "🟡 <b>Próxima volta provavelmente em andamento</b>",
+            f"🕐 Referência provável: <b>{viagem['hora']}</b> — {viagem.get('origem', '')}",
+            f"🚪 Referência do Portão 1: <b>{p['inicio']}–{p['fim']}</b>",
+            "",
+            f"📌 Última volta confirmada: <b>{atual['hora']}</b> — {origem}",
+            "⬅️ A última confirmação indicava o ônibus no percurso de retorno.",
+            f"🕐 Sem nova confirmação há pelo menos {JANELA_TRANSICAO_PROVAVEL_MINUTOS} min após esse retorno.",
+            "ℹ️ A nova volta é uma inferência operacional, não uma confirmação de passagem.",
+        ])
 
     linhas = [
         "🚌 <b>Circular UFRB — Principal</b>",
