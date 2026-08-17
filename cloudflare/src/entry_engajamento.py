@@ -132,6 +132,7 @@ class BusState(_BusStateBase):
             fluxo = {
                 "chave_lacuna": chave_lacuna,
                 "primeiro_enviado": False,
+                "primeiro_encerrado": False,
                 "autor_enviado": False,
                 "segundo_enviado": False,
             }
@@ -146,16 +147,20 @@ class BusState(_BusStateBase):
         autor_em = base_tempo + timedelta(minutes=autor_min)
         corte_primeiro = primeiro_em - timedelta(minutes=ANTECEDENCIA_CORTE_MIN)
         corte_segundo = segundo_em - timedelta(minutes=ANTECEDENCIA_CORTE_MIN)
-
         avisos_volta = int(contador.get("avisos", 0))
 
-        # 1) Primeiro lote: candidatos que consultaram desde a última confirmação
-        # até exatamente 1 minuto antes do horário do disparo.
-        if not fluxo.get("primeiro_enviado") and avisos_volta < MAX_AVISOS_POR_VOLTA and agora >= primeiro_em:
+        # Primeiro lote: não encerra a etapa se o cron não encontrar candidato.
+        # O corte continua fixo em 1 minuto antes do disparo planejado.
+        if (
+            not fluxo.get("primeiro_encerrado")
+            and avisos_volta < MAX_AVISOS_POR_VOLTA
+            and primeiro_em <= agora < autor_em
+        ):
             ids = await self._consultas_da_janela(chave_volta, base_tempo, corte_primeiro, admin_id)
-            fluxo["primeiro_enviado"] = True
-            await self.ctx.storage.put("engajamento_fluxo", json.dumps(fluxo, ensure_ascii=False))
             if ids:
+                fluxo["primeiro_enviado"] = True
+                fluxo["primeiro_encerrado"] = True
+                await self.ctx.storage.put("engajamento_fluxo", json.dumps(fluxo, ensure_ascii=False))
                 contador["avisos"] = avisos_volta + 1
                 await self.ctx.storage.put("engajamento_contador_volta", json.dumps(contador, ensure_ascii=False))
                 return {
@@ -169,9 +174,10 @@ class BusState(_BusStateBase):
                 }
             return {"enviar": False}
 
-        # 2) Fallback intermediário ao autor da última confirmação.
-        # Não conta como um dos dois avisos principais da volta.
-        if fluxo.get("primeiro_enviado") and not fluxo.get("autor_enviado") and agora >= autor_em:
+        # Fallback ao último marcador. Ao chegar aqui, o primeiro fluxo é
+        # encerrado definitivamente, evitando sobreposição com o segundo.
+        if not fluxo.get("autor_enviado") and agora >= autor_em:
+            fluxo["primeiro_encerrado"] = True
             fluxo["autor_enviado"] = True
             await self.ctx.storage.put("engajamento_fluxo", json.dumps(fluxo, ensure_ascii=False))
             autor = estado.get("telegram_id") if confirmacao_valida else None
@@ -187,15 +193,18 @@ class BusState(_BusStateBase):
                     "avisos_na_volta": avisos_volta,
                     "chave_lacuna": chave_lacuna,
                 }
-            return {"enviar": False}
 
-        # 3) Segundo lote: volta a considerar toda a janela desde a última
-        # confirmação, fechando a seleção 1 minuto antes do segundo disparo.
-        if not fluxo.get("segundo_enviado") and avisos_volta < MAX_AVISOS_POR_VOLTA and agora >= segundo_em:
+        # Segundo lote: só é concluído quando houver envio real. Pode ser
+        # rechecado nos crons seguintes, sempre usando o mesmo corte fixo.
+        if (
+            not fluxo.get("segundo_enviado")
+            and avisos_volta < MAX_AVISOS_POR_VOLTA
+            and agora >= segundo_em
+        ):
             ids = await self._consultas_da_janela(chave_volta, base_tempo, corte_segundo, admin_id)
-            fluxo["segundo_enviado"] = True
-            await self.ctx.storage.put("engajamento_fluxo", json.dumps(fluxo, ensure_ascii=False))
             if ids:
+                fluxo["segundo_enviado"] = True
+                await self.ctx.storage.put("engajamento_fluxo", json.dumps(fluxo, ensure_ascii=False))
                 contador["avisos"] = avisos_volta + 1
                 await self.ctx.storage.put("engajamento_contador_volta", json.dumps(contador, ensure_ascii=False))
                 return {
