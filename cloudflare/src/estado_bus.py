@@ -1,11 +1,11 @@
 import estado_bus_core as _core
 
+from dados import HORARIOS
 from transicao_bloco import confirmacao_inicia_novo_bloco
 from volta_referencia import (
     aplicar_referencia,
     limpar_referencia_expirada,
     proxima_volta_provavel,
-    retornar_volta_anterior as _retornar_volta_anterior,
     resumo_referenciado,
     saida_ru_recente,
     ultima_saida_oficial,
@@ -52,9 +52,6 @@ class BusState(_core.BusState):
         estado = _core.reiniciar_se_novo_ciclo_noturno(estado, agora)
         estado = _core.expirar_confirmacao_volta_anterior(estado, agora)
 
-        # Antes de renderizar, uma referência antiga perde prioridade quando
-        # atinge o limite operacional calculado por volta_referencia.py.
-        # A partir daí o resumo padrão volta a obedecer às regras normal/pico.
         provavel = proxima_volta_provavel(estado, agora)
         texto_padrao = _core.montar_resumo_horarios(estado=estado, agora=agora)
         texto = resumo_referenciado(estado, agora, texto_padrao)
@@ -90,15 +87,16 @@ class BusState(_core.BusState):
             )
         return resposta
 
-    async def retornar_volta_anterior(self):
+    async def definir_volta_referencia(self, hora):
+        viagem = next((v for v in HORARIOS.get("principal", []) if v.get("hora") == hora), None)
+        if viagem is None:
+            return {"ok": False, "motivo": "horario_invalido"}
+
         estado = await self._carregar()
-        agora = _core.agora_local()
-        estado, anterior = _retornar_volta_anterior(estado, agora)
-        if anterior is None:
-            return {"ok": False, "motivo": "sem_volta_anterior"}
+        aplicar_referencia(estado, viagem, manual=True)
         await self._salvar(estado)
         return {
             "ok": True,
-            "hora": anterior["hora"],
-            "origem": anterior.get("origem", ""),
+            "hora": viagem["hora"],
+            "origem": viagem.get("origem", ""),
         }
