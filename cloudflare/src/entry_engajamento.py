@@ -10,9 +10,10 @@ from volta_referencia import ultima_saida_oficial, viagem_por_referencia
 MAX_CONVIDADOS = 10
 MAX_AVISOS_POR_VOLTA = 2
 TEMPO_NORMAL_PRIMEIRO_MIN = 5
-TEMPO_NORMAL_SEGUNDO_MIN = 15
 TEMPO_PICO_PRIMEIRO_MIN = 10
-TEMPO_PICO_SEGUNDO_MIN = 20
+TEMPO_AUTOR_NORMAL_MIN = 8
+TEMPO_AUTOR_PICO_MIN = 13
+INTERVALO_ENTRE_AVISOS_MIN = 10
 JANELA_CONSULTA_MIN = 30
 
 
@@ -79,7 +80,6 @@ class BusState(_BusStateBase):
             return {"enviar": False}
 
         chave_volta = _chave_volta(viagem, agora)
-
         bruto_contador = await self.ctx.storage.get("engajamento_contador_volta")
         try:
             contador = json.loads(bruto_contador) if bruto_contador else {}
@@ -96,26 +96,28 @@ class BusState(_BusStateBase):
         base_tempo = confirmacao if confirmacao_valida else saida
         chave_lacuna = _chave_lacuna(viagem, base_tempo)
 
-        bruto_estagio = await self.ctx.storage.get("engajamento_estagio")
+        bruto_fluxo = await self.ctx.storage.get("engajamento_fluxo")
         try:
-            controle = json.loads(bruto_estagio) if bruto_estagio else {}
+            fluxo = json.loads(bruto_fluxo) if bruto_fluxo else {}
         except Exception:
-            controle = {}
-        if controle.get("chave_lacuna") != chave_lacuna:
-            controle = {"chave_lacuna": chave_lacuna, "estagio": 0}
+            fluxo = {}
+        if fluxo.get("chave_lacuna") != chave_lacuna:
+            fluxo = {"chave_lacuna": chave_lacuna, "avisos_lacuna": 0, "ultimo_aviso_em": None}
 
+        avisos_lacuna = int(fluxo.get("avisos_lacuna", 0))
+        ultimo_aviso_em = _dt(fluxo.get("ultimo_aviso_em"))
         pico = bool(estimar_chegada_portao_1(viagem["hora"])["pico"])
         primeiro = TEMPO_PICO_PRIMEIRO_MIN if pico else TEMPO_NORMAL_PRIMEIRO_MIN
-        segundo = TEMPO_PICO_SEGUNDO_MIN if pico else TEMPO_NORMAL_SEGUNDO_MIN
-        decorrido = agora - base_tempo
+        fallback_autor = TEMPO_AUTOR_PICO_MIN if pico else TEMPO_AUTOR_NORMAL_MIN
 
-        estagio_atual = int(controle.get("estagio", 0))
-        if estagio_atual < 1 and decorrido >= timedelta(minutes=primeiro):
-            proximo_estagio = 1
-        elif estagio_atual < 2 and decorrido >= timedelta(minutes=segundo):
-            proximo_estagio = 2
+        if avisos_lacuna == 0:
+            if agora < base_tempo + timedelta(minutes=primeiro):
+                return {"enviar": False}
+            inicio_candidatos = base_tempo
         else:
-            return {"enviar": False}
+            if ultimo_aviso_em is None or agora < ultimo_aviso_em + timedelta(minutes=INTERVALO_ENTRE_AVISOS_MIN):
+                return {"enviar": False}
+            inicio_candidatos = ultimo_aviso_em
 
         bruto = await self.ctx.storage.get("engajamento_consultas")
         try:
@@ -128,33 +130,38 @@ class BusState(_BusStateBase):
             if consulta.get("chave") != chave_volta:
                 continue
             momento = _dt(consulta.get("consultado_em"))
-            if not momento or momento < base_tempo or agora - momento > timedelta(minutes=JANELA_CONSULTA_MIN):
+            if not momento or momento < inicio_candidatos or agora - momento > timedelta(minutes=JANELA_CONSULTA_MIN):
                 continue
             telegram_id = str(consulta.get("telegram_id"))
             if admin_id is not None and telegram_id != str(admin_id):
                 continue
             recentes.append((momento, telegram_id))
 
-        ids = []
-        ultimo_autor = estado.get("telegram_id")
-        if confirmacao_valida and ultimo_autor is not None:
-            ultimo_autor = str(ultimo_autor)
-            if ultimo_autor != "admin" and (admin_id is None or ultimo_autor == str(admin_id)):
-                ids.append(ultimo_autor)
-
         recentes.sort(reverse=True)
+        ids = []
         for _, telegram_id in recentes:
             if telegram_id not in ids:
                 ids.append(telegram_id)
             if len(ids) >= MAX_CONVIDADOS:
                 break
-        if not ids:
-            return {"enviar": False}
 
-        await self.ctx.storage.put(
-            "engajamento_estagio",
-            json.dumps({"chave_lacuna": chave_lacuna, "estagio": proximo_estagio}, ensure_ascii=False),
-        )
+        origem = "consultas"
+        if not ids:
+            autor = estado.get("telegram_id") if confirmacao_valida else None
+            autor = str(autor) if autor is not None else None
+            autor_valido = bool(autor and autor != "admin" and (admin_id is None or autor == str(admin_id)))
+            marco_autor = base_tempo + timedelta(minutes=fallback_autor) if avisos_lacuna == 0 else ultimo_aviso_em + timedelta(minutes=INTERVALO_ENTRE_AVISOS_MIN)
+            if not autor_valido or agora < marco_autor:
+                return {"enviar": False}
+            ids = [autor]
+            origem = "autor_ultima_confirmacao"
+
+        fluxo = {
+            "chave_lacuna": chave_lacuna,
+            "avisos_lacuna": avisos_lacuna + 1,
+            "ultimo_aviso_em": agora.isoformat(),
+        }
+        await self.ctx.storage.put("engajamento_fluxo", json.dumps(fluxo, ensure_ascii=False))
         contador["avisos"] = int(contador.get("avisos", 0)) + 1
         await self.ctx.storage.put("engajamento_contador_volta", json.dumps(contador, ensure_ascii=False))
 
@@ -162,10 +169,10 @@ class BusState(_BusStateBase):
             "enviar": True,
             "ids": ids[:MAX_CONVIDADOS],
             "pico": pico,
-            "estagio": proximo_estagio,
-            "limite": primeiro if proximo_estagio == 1 else segundo,
-            "chave_lacuna": chave_lacuna,
+            "origem": origem,
+            "avisos_na_lacuna": fluxo["avisos_lacuna"],
             "avisos_na_volta": contador["avisos"],
+            "chave_lacuna": chave_lacuna,
         }
 
 
