@@ -1,9 +1,9 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import entry_ultima_volta as _entry
 from entry_ultima_volta import *
 from entry_core import enviar_mensagem, teclado_voltar, tempo_micro
-from micro import faixa_funcional_micro, micro_pode_ser_ativado_agora, referencia_micro_proxima, resumo_micro
+from micro import faixa_funcional_micro, micro_pode_ser_ativado_agora, referencia_micro_proxima
 from regras import agora_local
 
 
@@ -51,8 +51,8 @@ class BusState(_entry.BusState):
         if faixa and faixa["inicio"] <= agora < faixa["fim"]:
             expira = faixa["fim"]
         else:
-            # Override administrativo fora da faixa funcional: evita deixar uma
-            # sessão esporádica esquecida indefinidamente.
+            # Override administrativo fora da faixa funcional: evita sessão
+            # esporádica esquecida indefinidamente.
             expira = agora + timedelta(minutes=90)
 
         await self.ctx.storage.put("micro_ativo", True)
@@ -81,8 +81,20 @@ class BusState(_entry.BusState):
 
 class Default(_entry.Default):
     async def _acao(self, acao, chat_id, telegram_id=None):
-        if acao == "micro_confirmar_sim" and self._telegram_admin(telegram_id):
-            resultado = await self._estado().ativar_micro(admin_override=True)
+        if acao == "micro_confirmar_sim":
+            resultado = await self._estado().ativar_micro(
+                admin_override=self._telegram_admin(telegram_id)
+            )
+            if not resultado.get("ok"):
+                return await enviar_mensagem(
+                    self.env.TELEGRAM_BOT_TOKEN,
+                    chat_id,
+                    "🚫 O micro não pode ser ativado neste horário.\n\n"
+                    "Para usuários, a confirmação fica disponível na faixa funcional do reforço, "
+                    "inclusive quando ele estiver rodando fora de uma volta oficial específica.",
+                    reply_markup=teclado_voltar(),
+                )
+
             if resultado.get("ja_ativo"):
                 return await self._menu(chat_id, telegram_id)
 
