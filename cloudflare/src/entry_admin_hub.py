@@ -5,6 +5,10 @@ from entry_micro_admin import *
 
 
 _teclado_localizacao_original = _base_entry.teclado_localizacao
+AVISO_VOLTA_20H = (
+    "⚠️ <b>20:00 é uma previsão baseada na rotina do ano passado e pode não ocorrer.</b>\n"
+    "🌙 Se ocorrer, o circular pode passar antes da estimativa."
+)
 
 
 def teclado_menu_ajuste_manual(micro_ativo=False, admin=False, principal_ativo=True):
@@ -76,7 +80,12 @@ def _enxugar_texto_usuario(texto):
             continue
         saida.append(linha)
         vazio_anterior = vazio
-    return "\n".join(saida).strip()
+    texto = "\n".join(saida).strip()
+
+    menciona_20h = "20:00" in texto
+    if menciona_20h and AVISO_VOLTA_20H not in texto:
+        texto += "\n\n" + AVISO_VOLTA_20H
+    return texto
 
 
 _base_entry.teclado_menu_com_controle = teclado_menu_ajuste_manual
