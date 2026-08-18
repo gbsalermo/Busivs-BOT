@@ -65,8 +65,10 @@ class BusState(_BusStateBase):
             consultas = json.loads(bruto) if bruto else []
         except Exception:
             consultas = []
+        # Mantém todas as consultas da volta. A deduplicação acontece somente
+        # ao montar o lote, para uma consulta posterior não apagar uma anterior
+        # que ainda pertença à janela válida do aviso.
         consultas = [c for c in consultas if c.get("chave") == chave]
-        consultas = [c for c in consultas if str(c.get("telegram_id")) != str(telegram_id)]
         consultas.append({"chave": chave, "telegram_id": str(telegram_id), "consultado_em": agora.isoformat()})
         await self.ctx.storage.put("engajamento_consultas", json.dumps(consultas[-150:], ensure_ascii=False))
         return {"ok": True, "chave": chave}
