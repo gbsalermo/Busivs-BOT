@@ -104,8 +104,6 @@ def _fase_final_ultima_volta(estado, agora):
         return False, viagem, indice_bloco, bloco
 
     if ponto == "ru":
-        # RU só representa a etapa final quando é a chegada de retorno, isto é,
-        # quando não existe próximo ponto da rota normal após essa ocorrência.
         if resultado.get("ponto_atual_id") != "ru" or resultado.get("proximo") is not None:
             return False, viagem, indice_bloco, bloco
         return True, viagem, indice_bloco, bloco
@@ -129,28 +127,29 @@ def _contexto_ultima_volta(estado, agora):
         return ""
 
     return (
-        "🏁 Esta é a última volta deste bloco.\n"
-        "🅿️ Depois desta volta, o circular segue para a Garagem.\n"
-        f"⏰ Próxima saída: {proxima_txt}."
+        "🏁 <b>Última volta do bloco — retorno</b>\n"
+        "⬅️ Sentido: RU / Garagem\n"
+        "📍 O circular ainda pode atender pontos no retorno.\n\n"
+        f"⏰ <b>Próxima saída: {proxima_txt}</b>"
     )
 
 
 def _ajustar_ru_da_ultima_volta(texto, estado, agora):
-    """No RU de retorno da última volta, informa o percurso final à Garagem."""
     fase_final, _, _, _ = _fase_final_ultima_volta(estado, agora)
     if not fase_final or (estado or {}).get("ponto_atual") != "ru":
         return texto
 
-    substituto = (
-        "📍 Chegada ao RU confirmada.\n"
-        "🏁 Última volta do bloco — sentido Garagem.\n"
-        "↩️ O circular ainda pode passar por Fitotecnia e Solos antes de chegar à Garagem."
-    )
+    substituto = "📍 Chegada ao RU confirmada."
     textos_antigos = [
         "🏁 Fim da volta confirmado no RU.",
         (
             "📍 Chegada ao RU confirmada.\n"
             "↩️ Na última volta do bloco, o circular ainda pode seguir por Fitotecnia e Solos antes da Garagem."
+        ),
+        (
+            "📍 Chegada ao RU confirmada.\n"
+            "🏁 Última volta do bloco — sentido Garagem.\n"
+            "↩️ O circular ainda pode passar por Fitotecnia e Solos antes de chegar à Garagem."
         ),
     ]
     for antigo in textos_antigos:
@@ -168,27 +167,23 @@ def _resumo_fase_final(estado, agora):
         return None
 
     ponto = (estado or {}).get("ponto_atual")
-    resultado = (estado or {}).get("resultado_rota") or {}
     linhas = [
         "🚌 <b>Circular UFRB — Principal</b>",
         "",
-        f"🏁 <b>Última volta do bloco — {viagem['hora']}</b>",
-        "🅿️ <b>Etapa final / sentido Garagem</b>",
+        "🏁 <b>Última volta do bloco — retorno</b>",
+        "⬅️ Sentido: RU / Garagem",
     ]
-
     if ponto == "ru":
-        linhas.append("📍 Chegada ao RU confirmada; ainda pode passar por Fitotecnia e Solos.")
+        linhas.append("📍 Chegada ao RU confirmada; o circular ainda pode atender Fitotecnia e Solos.")
     elif ponto == "fitotecnia":
-        linhas.append("📍 Última confirmação: Fitotecnia — seguindo para a Garagem.")
+        linhas.append("📍 Última confirmação: Fitotecnia; o circular segue no retorno.")
     elif ponto == "solos_neas_florestal":
-        linhas.append("📍 Última confirmação: Solos / NEAS / Eng. Florestal — seguindo para a Garagem.")
-    elif ponto == "garagem" or resultado.get("garagem_confirmada"):
+        linhas.append("📍 Última confirmação: Solos / NEAS / Eng. Florestal; o circular segue para a Garagem.")
+    elif ponto == "garagem":
         linhas.append("📍 Circular na Garagem.")
-
-    linhas += [
-        "",
-        f"⏰ <b>Próxima volta: {proxima_txt}</b>",
-    ]
+    else:
+        linhas.append("📍 O circular ainda pode atender pontos no retorno.")
+    linhas += ["", f"⏰ <b>Próxima saída: {proxima_txt}</b>"]
     return "\n".join(linhas)
 
 
@@ -206,11 +201,7 @@ def _resumo_bloco_encerrado(estado, agora):
     if not proxima_txt:
         return None
 
-    garagem = (
-        "🅿️ Circular na Garagem."
-        if resultado.get("garagem_confirmada")
-        else "🅿️ Circular provavelmente na Garagem."
-    )
+    garagem = "🅿️ Circular na Garagem." if resultado.get("garagem_confirmada") else "🅿️ Circular provavelmente na Garagem."
     return (
         "🚌 <b>Circular UFRB — Principal</b>\n\n"
         f"🏁 A volta das <b>{ultima}</b> já encerrou.\n"
@@ -225,9 +216,7 @@ class BusState(_entry.BusState):
         estado = await self._carregar()
         agora = _entry.agora_local()
 
-        resposta["texto"] = _ajustar_ru_da_ultima_volta(
-            resposta.get("texto", ""), estado, agora
-        )
+        resposta["texto"] = _ajustar_ru_da_ultima_volta(resposta.get("texto", ""), estado, agora)
 
         status = await self.status_registro_principal()
         if not status.get("ativo"):
@@ -238,6 +227,14 @@ class BusState(_entry.BusState):
             return resposta
 
         texto = resposta.get("texto", "")
+        marcador = "↩️ Percurso de retorno"
+        if marcador in texto:
+            inicio = texto.find(marcador)
+            fim = texto.find("\n\n", inicio)
+            while fim != -1 and "Próxima volta programada" not in texto[inicio:fim]:
+                fim = texto.find("\n\n", fim + 2)
+            if fim != -1:
+                texto = texto[:inicio].rstrip() + texto[fim:].lstrip()
         linha_antiga = "🅿️ Sem nova saída neste bloco; o circular provavelmente segue para a Garagem."
         if linha_antiga in texto:
             texto = texto.replace(linha_antiga, contexto)
@@ -248,9 +245,6 @@ class BusState(_entry.BusState):
         return resposta
 
     async def resumo_horarios(self):
-        # Primeiro deixa a lógica central atualizar/persistir o estado. Depois,
-        # a etapa final da última volta substitui "volta em andamento" por um
-        # estado de encerramento; se o bloco já fechou, o marcador tem prioridade.
         resposta = await super().resumo_horarios()
         estado = await self._carregar()
         agora = _entry.agora_local()
