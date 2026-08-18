@@ -106,6 +106,15 @@ def proxima_apos_referencia(estado):
     return HORARIOS["principal"][indice + 1]
 
 
+def _proximas_apos_viagem(viagem, quantidade=3):
+    if not viagem:
+        return []
+    indice = _indice_hora(viagem.get("hora"))
+    if indice is None:
+        return []
+    return HORARIOS.get("principal", [])[indice + 1:indice + 1 + quantidade]
+
+
 def _confirmacao_em(estado):
     valor = (estado or {}).get("horario")
     if not valor:
@@ -182,6 +191,16 @@ def limpar_referencia_expirada(estado, agora):
     return estado
 
 
+def _adicionar_proximas(linhas, viagem_base, quantidade=3):
+    proximas = _proximas_apos_viagem(viagem_base, quantidade)
+    if not proximas:
+        return linhas
+    linhas += ["", "🟢 <b>Próximas saídas oficiais</b>"]
+    for viagem in proximas:
+        linhas.append(f"🕐 <b>{viagem['hora']}</b> — {viagem.get('origem', '')}")
+    return linhas
+
+
 def resumo_referenciado(estado, agora, resumo_padrao):
     atual = viagem_por_referencia(estado)
     if atual is None:
@@ -200,10 +219,10 @@ def resumo_referenciado(estado, agora, resumo_padrao):
             "",
             f"📌 Última volta confirmada: <b>{atual['hora']}</b> — {atual.get('origem', '')}",
         ]
+        _adicionar_proximas(linhas, viagem, 3)
         return "\n".join(linhas)
 
     previsao = estimar_chegada_portao_1(atual["hora"])
-    proxima = proxima_apos_referencia(estado)
     origem = atual.get("origem", "")
     bloco_atual = _bloco_da_viagem(atual["hora"])
     ultima_do_bloco = bool(bloco_atual and bloco_atual.get("ultima") == atual.get("hora"))
@@ -219,19 +238,5 @@ def resumo_referenciado(estado, agora, resumo_padrao):
     if ultima_do_bloco:
         linhas.append("🏁 <b>Esta é a última volta deste bloco operacional.</b>")
 
-    if proxima:
-        proximo_bloco = _bloco_da_viagem(proxima["hora"])
-        linhas += [
-            "",
-            "🟢 <b>Próxima saída oficial</b>",
-            f"🕐 <b>{proxima['hora']}</b> — {proxima.get('origem', '')}",
-        ]
-        if (
-            ultima_do_bloco
-            and proximo_bloco
-            and bloco_atual
-            and proximo_bloco.get("id") != bloco_atual.get("id")
-        ):
-            linhas.append("📦 Essa próxima saída já pertence ao próximo bloco operacional.")
-
+    _adicionar_proximas(linhas, atual, 3)
     return "\n".join(linhas)
