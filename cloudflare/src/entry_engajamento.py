@@ -18,12 +18,13 @@ TEMPO_AUTOR_NORMAL_MIN = 8
 TEMPO_AUTOR_PICO_MIN = 13
 ANTECEDENCIA_CORTE_MIN = 1
 JANELA_CONSULTA_MIN = 30
+CONVITE_VALIDO_MIN = 3
 
 
-def teclado_convite():
+def teclado_convite(token):
     return {"inline_keyboard": [
-        [{"text": "📍 Sim, marcar ponto", "callback_data": "local"}],
-        [{"text": "❌ Não vi", "callback_data": "engajamento_nao_vi"}],
+        [{"text": "📍 Sim, marcar ponto", "callback_data": f"engajamento_local_{token}"}],
+        [{"text": "❌ Não vi", "callback_data": f"engajamento_nao_vi_{token}"}],
     ]}
 
 
@@ -71,6 +72,62 @@ class BusState(_BusStateBase):
         consultas.append({"chave": chave, "telegram_id": str(telegram_id), "consultado_em": agora.isoformat()})
         await self.ctx.storage.put("engajamento_consultas", json.dumps(consultas[-150:], ensure_ascii=False))
         return {"ok": True, "chave": chave}
+
+    async def registrar_convite_engajamento(self, telegram_id):
+        """Cria um convite de resposta curta e invalida qualquer convite anterior do usuário."""
+        agora = agora_local()
+        telegram_id = str(telegram_id)
+        token = str(int(agora.timestamp() * 1000))
+        bruto = await self.ctx.storage.get("engajamento_convites")
+        try:
+            convites = json.loads(bruto) if bruto else {}
+        except Exception:
+            convites = {}
+
+        # Mantém somente convites ainda potencialmente úteis e substitui o
+        # convite anterior do mesmo usuário pelo mais recente.
+        limite = agora - timedelta(minutes=CONVITE_VALIDO_MIN)
+        ativos = {}
+        for uid, convite in convites.items():
+            enviado_em = _dt((convite or {}).get("enviado_em"))
+            if enviado_em and enviado_em >= limite and not (convite or {}).get("consumido"):
+                ativos[str(uid)] = convite
+
+        ativos[telegram_id] = {
+            "token": token,
+            "enviado_em": agora.isoformat(),
+            "consumido": False,
+        }
+        await self.ctx.storage.put("engajamento_convites", json.dumps(ativos, ensure_ascii=False))
+        return token
+
+    async def consumir_convite_engajamento(self, telegram_id, token):
+        """Aceita somente o convite exato do usuário, uma vez, por até 3 minutos."""
+        agora = agora_local()
+        telegram_id = str(telegram_id)
+        token = str(token or "")
+        bruto = await self.ctx.storage.get("engajamento_convites")
+        try:
+            convites = json.loads(bruto) if bruto else {}
+        except Exception:
+            convites = {}
+
+        convite = convites.get(telegram_id) or {}
+        enviado_em = _dt(convite.get("enviado_em"))
+        valido = bool(
+            convite
+            and convite.get("token") == token
+            and not convite.get("consumido")
+            and enviado_em
+            and timedelta(0) <= agora - enviado_em <= timedelta(minutes=CONVITE_VALIDO_MIN)
+        )
+        if not valido:
+            return {"ok": False, "motivo": "expirado_ou_invalido"}
+
+        convite["consumido"] = True
+        convites[telegram_id] = convite
+        await self.ctx.storage.put("engajamento_convites", json.dumps(convites, ensure_ascii=False))
+        return {"ok": True}
 
     async def _consultas_da_janela(self, chave_volta, inicio, corte, admin_id=None):
         bruto = await self.ctx.storage.get("engajamento_consultas")
@@ -239,14 +296,36 @@ class Default(_entry.Default):
             await self._estado().registrar_consulta_engajamento(telegram_id)
         return await super()._onde(chat_id, telegram_id)
 
+    async def _convite_expirado(self, chat_id, telegram_id=None):
+        return await _entry._core.enviar_mensagem(
+            self.env.TELEGRAM_BOT_TOKEN,
+            chat_id,
+            "⌛ Este pedido de confirmação expirou.\n\n"
+            "Os botões desse aviso ficam disponíveis por 3 minutos. "
+            "Se você estiver vendo o circular agora, use 📍 Marcar ponto pelo menu.",
+            reply_markup=_entry.teclado_localizacao_admin(self._telegram_admin(telegram_id)),
+        )
+
     async def _acao(self, acao, chat_id, telegram_id=None):
-        if acao == "engajamento_nao_vi":
+        if acao.startswith("engajamento_local_"):
+            token = acao.replace("engajamento_local_", "", 1)
+            convite = await self._estado().consumir_convite_engajamento(telegram_id, token)
+            if not convite.get("ok"):
+                return await self._convite_expirado(chat_id, telegram_id)
+            return await super()._acao("local", chat_id, telegram_id)
+
+        if acao.startswith("engajamento_nao_vi_"):
+            token = acao.replace("engajamento_nao_vi_", "", 1)
+            convite = await self._estado().consumir_convite_engajamento(telegram_id, token)
+            if not convite.get("ok"):
+                return await self._convite_expirado(chat_id, telegram_id)
             return await _entry._core.enviar_mensagem(
                 self.env.TELEGRAM_BOT_TOKEN,
                 chat_id,
                 "👍 Tudo bem. Obrigado por responder!",
                 reply_markup=_entry.teclado_localizacao_admin(self._telegram_admin(telegram_id)),
             )
+
         return await super()._acao(acao, chat_id, telegram_id)
 
     async def scheduled(self, controller, env, ctx):
@@ -256,12 +335,14 @@ class Default(_entry.Default):
         texto = (
             "🚌 Você viu o circular recentemente?\n\n"
             "A localização está há alguns minutos sem nova confirmação. "
-            "Se você viu o ônibus passar, ajude atualizando o ponto."
+            "Se você viu o ônibus passar, ajude atualizando o ponto.\n\n"
+            "⏳ Este pedido pode ser respondido por até 3 minutos."
         )
         for telegram_id in candidatos.get("ids", []):
+            token = await self._estado().registrar_convite_engajamento(telegram_id)
             await _entry._core.enviar_mensagem(
                 self.env.TELEGRAM_BOT_TOKEN,
                 telegram_id,
                 texto,
-                reply_markup=teclado_convite(),
+                reply_markup=teclado_convite(token),
             )
