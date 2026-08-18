@@ -237,7 +237,7 @@ class Default(_entry.Default):
             )
         return await super()._acao(acao, chat_id, telegram_id)
 
-    async def scheduled(self, controller):
+    async def scheduled(self, controller, env, ctx):
         candidatos = await self._estado().candidatos_engajamento()
         if not candidatos.get("enviar"):
             return
