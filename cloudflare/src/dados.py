@@ -1,6 +1,8 @@
 HORARIOS = {
     "principal": [
-        {"hora":"06:25","origem":"Garagem"},{"hora":"06:50","origem":"RU/Residencias"},{"hora":"07:10","origem":"RU/Residencias"},{"hora":"07:25","origem":"RU/Residencias"},{"hora":"07:40","origem":"RU/Residencias"},{"hora":"07:55","origem":"RU/Residencias"},{"hora":"09:35","origem":"Garagem"},{"hora":"10:00","origem":"RU/Residencias"},{"hora":"11:30","origem":"Garagem"},{"hora":"11:55","origem":"RU/Residencias"},{"hora":"12:20","origem":"RU/Residencias"},{"hora":"13:00","origem":"Garagem"},{"hora":"13:25","origem":"RU/Residencias"},{"hora":"13:45","origem":"RU/Residencias"},{"hora":"14:00","origem":"RU/Residencias"},{"hora":"15:35","origem":"Garagem"},{"hora":"16:00","origem":"RU/Residencias"},{"hora":"17:30","origem":"Garagem"},{"hora":"17:55","origem":"RU/Residencias"},{"hora":"18:15","origem":"RU/Residencias"},{"hora":"20:40","origem":"Garagem"},{"hora":"21:40","origem":"Garagem"},{"hora":"22:30","origem":"Garagem"}
+        {"hora":"06:25","origem":"Garagem"},{"hora":"06:50","origem":"RU/Residencias"},{"hora":"07:10","origem":"RU/Residencias"},{"hora":"07:25","origem":"RU/Residencias"},{"hora":"07:40","origem":"RU/Residencias"},{"hora":"07:55","origem":"RU/Residencias"},{"hora":"09:35","origem":"Garagem"},{"hora":"10:00","origem":"RU/Residencias"},{"hora":"11:30","origem":"Garagem"},{"hora":"11:55","origem":"RU/Residencias"},{"hora":"12:20","origem":"RU/Residencias"},{"hora":"13:00","origem":"Garagem"},{"hora":"13:25","origem":"RU/Residencias"},{"hora":"13:45","origem":"RU/Residencias"},{"hora":"14:00","origem":"RU/Residencias"},{"hora":"15:35","origem":"Garagem"},{"hora":"16:00","origem":"RU/Residencias"},{"hora":"17:30","origem":"Garagem"},{"hora":"17:55","origem":"RU/Residencias"},{"hora":"18:15","origem":"RU/Residencias"},
+        {"hora":"20:00","origem":"Garagem","previsao_p1_inicio":"20:10","previsao_p1_fim":"20:15","experimental":True,"observacao":"⚠️ Esta volta pode não ocorrer. A previsão é baseada na rotina do ano passado."},
+        {"hora":"20:40","origem":"Garagem"},{"hora":"21:40","origem":"Garagem"},{"hora":"22:30","origem":"Garagem"}
     ],
     "micro": [
         {"hora":"07:25","origem":"Garagem","fim":"07:40"},
@@ -19,8 +21,9 @@ HORARIOS = {
 # A segunda referência (10:00/16:00) sai do RU e corresponde à última volta do
 # bloco; depois dela o veículo retorna à Garagem e encerra a operação do bloco.
 #
-# Os horários 20:40, 21:40 e 22:30 pertencem ao mesmo turno noturno, mas são
-# três blocos independentes: cada um sai e retorna à Garagem.
+# Os horários 20:00, 20:40, 21:40 e 22:30 são blocos noturnos independentes:
+# cada um sai e retorna à Garagem. A referência das 20:00 é experimental,
+# baseada na rotina do ano passado, e pode não ocorrer.
 BLOCOS_PRINCIPAL = [
     {"id":"manha_inicial","inicio":"06:25","ultima":"07:55"},
     {"id":"manha_intermediario","inicio":"09:35","ultima":"10:00"},
@@ -28,6 +31,7 @@ BLOCOS_PRINCIPAL = [
     {"id":"inicio_tarde","inicio":"13:00","ultima":"14:00"},
     {"id":"tarde_intermediario","inicio":"15:35","ultima":"16:00"},
     {"id":"fim_tarde","inicio":"17:30","ultima":"18:15"},
+    {"id":"noite_2000","inicio":"20:00","ultima":"20:00","fim":"20:25"},
     {"id":"noite_2040","inicio":"20:40","ultima":"20:40"},
     {"id":"noite_2140","inicio":"21:40","ultima":"21:40"},
     {"id":"noite_2230","inicio":"22:30","ultima":"22:30"},
