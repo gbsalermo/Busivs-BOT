@@ -82,8 +82,7 @@ def _enxugar_texto_usuario(texto):
         vazio_anterior = vazio
     texto = "\n".join(saida).strip()
 
-    menciona_20h = "20:00" in texto
-    if menciona_20h and AVISO_VOLTA_20H not in texto:
+    if "20:00" in texto and AVISO_VOLTA_20H not in texto:
         texto += "\n\n" + AVISO_VOLTA_20H
     return texto
 
@@ -143,6 +142,17 @@ class Default(_entry.Default):
 
         if acao == "horarios":
             return await self._horarios(chat_id)
+
+        if acao.startswith("periodo_"):
+            periodo = acao.replace("periodo_", "", 1)
+            texto = _enxugar_texto_usuario(_core.listar_horarios_periodo(periodo))
+            return await _core.enviar_mensagem(
+                self.env.TELEGRAM_BOT_TOKEN,
+                chat_id,
+                texto,
+                parse_mode="HTML",
+                reply_markup=_core.teclado_voltar(),
+            )
 
         if acao == "admin_ajuste_menu":
             if not self._telegram_admin(telegram_id):
