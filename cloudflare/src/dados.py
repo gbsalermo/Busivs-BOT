@@ -6,7 +6,7 @@ HORARIOS = {
         {"hora":"07:25","origem":"Garagem","fim":"07:40"},
         {"hora":"07:40","origem":"RU/Residencias","fim":"07:55"},
         {"hora":"07:55","origem":"RU/Residencias","fim":"08:20"},
-        {"hora":"11:30","origem":"Garagem","fim":"11:55"},
+        {"hora":"11:20","origem":"Garagem","fim":"11:55"},
         {"hora":"11:55","origem":"RU/Residencias","fim":"12:20"},
         {"hora":"12:20","origem":"RU/Residencias","fim":"12:45"}
     ]
