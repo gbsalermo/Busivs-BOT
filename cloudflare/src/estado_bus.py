@@ -64,7 +64,7 @@ def _bloco_atual_ou_referenciado(estado, agora):
 
 
 def _contexto_pos_ru(estado, agora):
-    """Explica o que tende a acontecer após uma chegada confirmada ao RU."""
+    """Explica de forma curta o que tende a acontecer após chegar ao RU."""
     resultado = (estado or {}).get("resultado_rota") or {}
     if (estado or {}).get("ponto_atual") != "ru":
         return ""
@@ -89,14 +89,20 @@ def _contexto_pos_ru(estado, agora):
         return (
             "\n\n⏰ Próxima saída prevista neste bloco:"
             f"\n     🕐 {proxima['hora']} — {proxima.get('origem', 'RU/Residências')}"
-            "\nℹ️ A confirmação no RU pode representar o fim da volta anterior ou a preparação para essa próxima saída."
         )
 
     return (
-        "\n\n🅿️ Não há outra saída prevista neste bloco."
-        "\n🚌 Após concluir esta volta no RU, o circular provavelmente segue no percurso de retorno para a Garagem."
-        "\nℹ️ Uma nova confirmação de ponto tem prioridade sobre essa estimativa."
+        "\n\n🅿️ Sem nova saída neste bloco; o circular provavelmente segue para a Garagem."
     )
+
+
+def _enxugar_fim_volta_ru(texto):
+    antigo = (
+        "🏁 Chegada ao RU / fim da volta confirmada.\n"
+        "🚌 O ônibus pode estar concluindo a volta anterior ou aguardando/iniciando uma nova saída.\n"
+        "ℹ️ Não é possível afirmar o sentido apenas por esta confirmação; os horários podem sofrer atraso."
+    )
+    return texto.replace(antigo, "🏁 Fim da volta confirmado no RU.")
 
 
 def _proximo_manual(indice):
@@ -179,9 +185,6 @@ def _deve_biblioteca_micro_ser_retorno(estado_antes, agora):
     if indice_biblioteca_ida is None or indice_biblioteca_retorno is None:
         return False
 
-    # A heurística temporal só atua quando a última confirmação conhecida ainda
-    # está na metade de ida. Se o micro já estava no retorno, a sequência normal
-    # da rota continua tendo prioridade.
     return indice_atual is not None and indice_atual < indice_biblioteca_ida
 
 
@@ -273,6 +276,7 @@ class BusState(_core.BusState):
         viagem = viagem_por_referencia(estado)
         provavel = proxima_volta_provavel(estado, agora)
 
+        resposta["texto"] = _enxugar_fim_volta_ru(resposta["texto"])
         resposta["texto"] += _contexto_pos_ru(estado, agora)
 
         if provavel:
