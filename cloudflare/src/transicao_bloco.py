@@ -46,30 +46,55 @@ def _origem_ru(viagem):
     return "ru" in origem or "resid" in origem
 
 
-def _ru_inicia_nova_volta(estado, agora):
-    """Reconhece RU como início quando uma nova saída do RU ocorreu recentemente.
-
-    Isso resolve o caso em que o histórico anterior terminaria no RU, mas uma
-    nova referência oficial (ex.: 07:25) já ocorreu e o ônibus chega ao RU alguns
-    minutos atrasado para iniciar essa própria volta.
-    """
-    confirmado_em = _confirmado_em(estado)
-    if confirmado_em is None or confirmado_em.date() != agora.date():
-        return False
-
+def _ultima_saida_ru_recente(agora):
     candidatas = []
     for viagem in HORARIOS.get("principal", []):
         if not _origem_ru(viagem):
             continue
         saida = _momento(viagem["hora"], agora)
-        if confirmado_em < saida <= agora:
+        if saida <= agora and agora - saida <= timedelta(minutes=JANELA_RU_NOVA_VOLTA_MINUTOS):
             candidatas.append((saida, viagem))
+    return max(candidatas, key=lambda item: item[0]) if candidatas else None
 
-    if not candidatas:
+
+def _ru_inicia_nova_volta(estado, agora):
+    """Reconhece RU como início de uma nova saída oficial próxima.
+
+    Há dois casos válidos:
+    1. a confirmação salva é anterior à nova saída do RU;
+    2. a volta anterior chegou atrasada ao RU depois do horário oficial, mas o
+       estado ainda carrega uma referência de volta mais antiga. Nesse caso o
+       timestamp sozinho não basta: a referência antiga prova que um novo RU
+       pode representar o início da saída mais recente.
+
+    Se o estado já está referenciado na própria saída recente, não reiniciamos o
+    contexto; isso evita transformar dois votos de RU da mesma volta em wraps.
+    """
+    confirmado_em = _confirmado_em(estado)
+    if confirmado_em is None or confirmado_em.date() != agora.date():
         return False
 
-    saida, _ = max(candidatas, key=lambda item: item[0])
-    return agora - saida <= timedelta(minutes=JANELA_RU_NOVA_VOLTA_MINUTOS)
+    recente = _ultima_saida_ru_recente(agora)
+    if recente is None:
+        return False
+
+    saida, viagem = recente
+    referencia_estado = (estado or {}).get("saida_referencia")
+
+    # O estado já pertence à saída atual: um novo RU não deve abrir outra volta.
+    if referencia_estado == viagem["hora"]:
+        return False
+
+    # Caso clássico: a nova saída ocorreu depois da última confirmação salva.
+    if confirmado_em < saida:
+        return True
+
+    # Caso de atraso/cascata: a confirmação anterior aconteceu depois do horário
+    # oficial, mas ainda pertence explicitamente a uma referência mais antiga.
+    if referencia_estado:
+        return referencia_estado != viagem["hora"]
+
+    return False
 
 
 def _ponto_compativel(ponto_id, bloco, agora):
@@ -103,8 +128,8 @@ def confirmacao_inicia_novo_bloco(estado, ponto_id, agora):
     """Retorna True quando a confirmação deve abandonar o histórico anterior.
 
     Além de transições entre blocos, RU pode iniciar uma nova volta dentro do
-    mesmo bloco quando uma nova saída oficial do RU ocorreu após a última
-    confirmação salva e ainda está dentro de uma janela curta de atraso.
+    mesmo bloco quando uma nova saída oficial do RU ocorreu e o estado salvo
+    ainda pertence a uma referência anterior.
     """
     confirmado_em = _confirmado_em(estado)
     if confirmado_em is None or confirmado_em.date() != agora.date():
