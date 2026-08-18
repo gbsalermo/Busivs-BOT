@@ -4,6 +4,9 @@ import entry_micro_admin as _entry
 from entry_micro_admin import *
 
 
+_teclado_localizacao_original = _base_entry.teclado_localizacao
+
+
 def teclado_menu_ajuste_manual(micro_ativo=False, admin=False, principal_ativo=True):
     teclado = _core.teclado_menu(micro_ativo, admin, principal_ativo)
     if not admin:
@@ -19,7 +22,7 @@ def teclado_menu_ajuste_manual(micro_ativo=False, admin=False, principal_ativo=T
 
 
 def teclado_localizacao_limpo(admin=False):
-    return _base_entry.teclado_localizacao(False)
+    return _teclado_localizacao_original(False)
 
 
 def teclado_ajuste_manual():
