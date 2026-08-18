@@ -31,6 +31,55 @@ def _bloco_por_referencia(hora):
     return candidatos[0] if candidatos else None
 
 
+def _bloco_atual_ou_referenciado(estado, agora):
+    bloco = _bloco_por_referencia((estado or {}).get("saida_referencia"))
+    if bloco is not None:
+        return bloco
+
+    minuto = agora.hour * 60 + agora.minute
+    candidatos = [
+        bloco for bloco in BLOCOS_PRINCIPAL
+        if _minutos(bloco["inicio"]) <= minuto
+    ]
+    return max(candidatos, key=lambda b: _minutos(b["inicio"])) if candidatos else None
+
+
+def _contexto_pos_ru(estado, agora):
+    """Explica o que tende a acontecer após uma chegada confirmada ao RU."""
+    resultado = (estado or {}).get("resultado_rota") or {}
+    if (estado or {}).get("ponto_atual") != "ru":
+        return ""
+    if resultado.get("ponto_atual_id") != "ru" or resultado.get("proximo") is not None:
+        return ""
+
+    bloco = _bloco_atual_ou_referenciado(estado, agora)
+    if bloco is None:
+        return ""
+
+    inicio = _minutos(bloco["inicio"])
+    fim = _minutos(bloco["ultima"])
+    agora_min = agora.hour * 60 + agora.minute
+    proximas = [
+        viagem for viagem in HORARIOS.get("principal", [])
+        if inicio <= _minutos(viagem["hora"]) <= fim
+        and _minutos(viagem["hora"]) > agora_min
+    ]
+
+    if proximas:
+        proxima = min(proximas, key=lambda v: _minutos(v["hora"]))
+        return (
+            "\n\n⏰ Próxima saída prevista neste bloco:"
+            f"\n     🕐 {proxima['hora']} — {proxima.get('origem', 'RU/Residências')}"
+            "\nℹ️ A confirmação no RU pode representar o fim da volta anterior ou a preparação para essa próxima saída."
+        )
+
+    return (
+        "\n\n🅿️ Não há outra saída prevista neste bloco."
+        "\n🚌 Após concluir esta volta no RU, o circular provavelmente segue no percurso de retorno para a Garagem."
+        "\nℹ️ Uma nova confirmação de ponto tem prioridade sobre essa estimativa."
+    )
+
+
 def _proximo_manual(indice):
     if indice + 1 >= len(ROTA):
         return None
@@ -146,6 +195,8 @@ class BusState(_core.BusState):
         agora = _core.agora_local()
         viagem = viagem_por_referencia(estado)
         provavel = proxima_volta_provavel(estado, agora)
+
+        resposta["texto"] += _contexto_pos_ru(estado, agora)
 
         if provavel:
             atual = provavel["viagem_anterior"]
