@@ -18,6 +18,21 @@ MINIMOS_ESPECIAIS = {
     ("ponto_externo_1", "ru"): 12,
     ("portao_2", "ru"): 14,
     ("biblioteca", "ru"): 4,
+
+    # Saída da Garagem: RU é uma primeira confirmação totalmente plausível.
+    # Os demais pontos precisam de um tempo mínimo para evitar saltos impossíveis.
+    ("garagem", "ru"): 0,
+    ("garagem", "fitotecnia"): 3,
+    ("garagem", "solos_neas_florestal"): 4,
+    ("garagem", "pavilhao_1"): 6,
+    ("garagem", "biblioteca"): 8,
+    ("garagem", "pavilhao_2"): 10,
+    ("garagem", "pavilhao_engenharia"): 11,
+    ("garagem", "portao_2"): 12,
+    ("garagem", "ponto_externo_1"): 14,
+    ("garagem", "ponto_externo_2"): 16,
+    ("garagem", "portao_1"): 18,
+    ("garagem", "torre_cotec"): 20,
 }
 
 
@@ -46,8 +61,12 @@ def _minimo_generico(estado, ponto_id):
 def _validar_tempo_minimo(estado, ponto_id, agora):
     anterior = (estado or {}).get("ponto_atual")
     horario = (estado or {}).get("horario")
+
+    # Sem confirmação anterior, qualquer ponto pode ser a primeira evidência real
+    # da volta. Ex.: alguém só lembra de votar no Pavilhão II ou no Alex.
     if not anterior or not horario or anterior == ponto_id:
         return None
+
     try:
         confirmado_em = datetime.fromisoformat(str(horario))
     except Exception:
