@@ -7,45 +7,6 @@ from estado_bus import _resultado_correcao_manual
 from regras import agora_local
 
 
-_teclado_menu_original = _entry.teclado_menu_admin
-_teclado_localizacao_original = _entry.teclado_localizacao_admin
-
-
-def _inserir_botao_micro(teclado):
-    linhas = list(teclado.get("inline_keyboard", []))
-    if any(
-        botao.get("callback_data") == "admin_micro_menu"
-        for linha in linhas
-        for botao in linha
-    ):
-        return teclado
-    botao = [{"text": "🚐 Corrigir micro", "callback_data": "admin_micro_menu"}]
-    indice_ajuda = next(
-        (
-            i
-            for i, linha in enumerate(linhas)
-            if any(b.get("callback_data") == "ajuda" for b in linha)
-        ),
-        max(0, len(linhas) - 1),
-    )
-    linhas.insert(indice_ajuda, botao)
-    return {"inline_keyboard": linhas}
-
-
-def teclado_menu_micro_admin(micro_ativo=False, admin=False, principal_ativo=True):
-    teclado = _teclado_menu_original(micro_ativo, admin, principal_ativo)
-    return _inserir_botao_micro(teclado) if admin else teclado
-
-
-def teclado_localizacao_micro_admin(admin=False):
-    teclado = _teclado_localizacao_original(admin)
-    return _inserir_botao_micro(teclado) if admin else teclado
-
-
-_entry.teclado_menu_admin = teclado_menu_micro_admin
-_entry.teclado_localizacao_admin = teclado_localizacao_micro_admin
-
-
 def _minutos(hora):
     h, m = map(int, hora.split(":"))
     return h * 60 + m
@@ -55,7 +16,6 @@ def _bloco_micro_atual():
     horarios = HORARIOS.get("micro", [])
     if not horarios:
         return []
-
     grupos = []
     atual = [horarios[0]]
     for item in horarios[1:]:
@@ -66,7 +26,6 @@ def _bloco_micro_atual():
             grupos.append(atual)
             atual = [item]
     grupos.append(atual)
-
     agora = agora_local()
     minuto = agora.hour * 60 + agora.minute
 
@@ -83,15 +42,12 @@ def _bloco_micro_atual():
 def teclado_referencias_micro():
     grupo = _bloco_micro_atual()
     botoes = [
-        {
-            "text": item["hora"],
-            "callback_data": f"admin_micro_ref_{item['hora'].replace(':', '')}",
-        }
+        {"text": item["hora"], "callback_data": f"admin_micro_ref_{item['hora'].replace(':', '')}"}
         for item in grupo
     ]
     botoes.append({"text": "🔵 Esporádica", "callback_data": "admin_micro_ref_ESP"})
     linhas = [botoes[i:i + 3] for i in range(0, len(botoes), 3)]
-    linhas.append([{"text": "⬅️ Voltar", "callback_data": "onde"}])
+    linhas.append([{"text": "⬅️ Voltar", "callback_data": "admin_ajuste_menu"}])
     return {"inline_keyboard": linhas}
 
 
@@ -110,12 +66,13 @@ def teclado_pontos_micro(referencia):
 
 
 def teclado_sentidos_micro(referencia, ponto_id):
-    linhas = []
-    for sentido in sentidos_disponiveis(ponto_id):
-        linhas.append([{
+    linhas = [
+        [{
             "text": _SENTIDOS_ROTULO.get(sentido, sentido),
             "callback_data": f"admin_micro_s_{referencia}_{ponto_id}_{sentido}",
-        }])
+        }]
+        for sentido in sentidos_disponiveis(ponto_id)
+    ]
     linhas.append([{
         "text": "⬅️ Escolher outro ponto",
         "callback_data": f"admin_micro_ref_{referencia}",
@@ -146,7 +103,6 @@ class BusState(_entry.BusState):
             "sentido": sentido,
             "referencia_micro": referencia,
         })
-
         estado.update({
             "ponto_anterior": anterior,
             "ponto_atual": ponto_id,
@@ -167,10 +123,7 @@ class BusState(_entry.BusState):
             if len(referencia) != 4 or not referencia.isdigit():
                 return {"ok": False, "motivo": "referencia_invalida"}
             hora = f"{referencia[:2]}:{referencia[2:]}"
-            viagem = next(
-                (v for v in HORARIOS.get("micro", []) if v.get("hora") == hora),
-                None,
-            )
+            viagem = next((v for v in HORARIOS.get("micro", []) if v.get("hora") == hora), None)
             if viagem is None:
                 return {"ok": False, "motivo": "referencia_invalida"}
             await self.ctx.storage.put("micro_modo", "referenciado")
@@ -206,14 +159,7 @@ class Default(_entry.Default):
                 return {"ok_http": True, "status": 200, "telegram": {"ok": True}}
             referencia = acao.replace("admin_micro_ref_", "", 1)
             if referencia != "ESP":
-                if len(referencia) != 4 or not referencia.isdigit():
-                    return await enviar_mensagem(
-                        self.env.TELEGRAM_BOT_TOKEN,
-                        chat_id,
-                        "⚠️ Referência inválida.",
-                        reply_markup=teclado_referencias_micro(),
-                    )
-                hora = f"{referencia[:2]}:{referencia[2:]}"
+                hora = f"{referencia[:2]}:{referencia[2:]}" if len(referencia) == 4 and referencia.isdigit() else ""
                 if not any(v.get("hora") == hora for v in HORARIOS.get("micro", [])):
                     return await enviar_mensagem(
                         self.env.TELEGRAM_BOT_TOKEN,
@@ -266,10 +212,11 @@ class Default(_entry.Default):
 
             resultado = await self._estado().corrigir_micro_admin(referencia, ponto_id, sentido)
             if not resultado.get("ok"):
-                if resultado.get("motivo") == "micro_inativo":
-                    texto = "🚫 O micro precisa estar marcado como em operação antes da correção."
-                else:
-                    texto = "⚠️ Não consegui aplicar a correção do micro."
+                texto = (
+                    "🚫 O micro precisa estar marcado como em operação antes da correção."
+                    if resultado.get("motivo") == "micro_inativo"
+                    else "⚠️ Não consegui aplicar a correção do micro."
+                )
                 return await enviar_mensagem(
                     self.env.TELEGRAM_BOT_TOKEN,
                     chat_id,
@@ -277,24 +224,27 @@ class Default(_entry.Default):
                     reply_markup=teclado_referencias_micro(),
                 )
 
-            if resultado.get("modo") == "esporadico":
-                referencia_txt = "🔵 Operação esporádica"
-            else:
-                referencia_txt = (
-                    f"🧭 Volta: {resultado['referencia_hora']} — "
-                    f"{resultado.get('referencia_origem', '')}"
-                )
+            referencia_txt = (
+                "🔵 Operação esporádica"
+                if resultado.get("modo") == "esporadico"
+                else f"🧭 Volta: {resultado['referencia_hora']} — {resultado.get('referencia_origem', '')}"
+            )
             texto = (
                 "✅ Micro corrigido manualmente.\n\n"
-                f"{referencia_txt}\n"
-                f"📍 {resultado['ponto']}\n"
-                f"{_SENTIDOS_ROTULO.get(resultado['sentido'], resultado['sentido'])}"
+                + referencia_txt
+                + f"\n📍 {resultado['ponto']}\n"
+                + _SENTIDOS_ROTULO.get(resultado["sentido"], resultado["sentido"])
             )
             return await enviar_mensagem(
                 self.env.TELEGRAM_BOT_TOKEN,
                 chat_id,
                 texto,
-                reply_markup=teclado_localizacao_micro_admin(True),
+                reply_markup={
+                    "inline_keyboard": [
+                        [{"text": "⬅️ Ajuste manual", "callback_data": "admin_ajuste_menu"}],
+                        [{"text": "⬅️ Voltar ao menu", "callback_data": "menu"}],
+                    ]
+                },
             )
 
         return await super()._acao(acao, chat_id, telegram_id)
