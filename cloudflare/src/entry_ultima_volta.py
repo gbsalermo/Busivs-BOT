@@ -7,6 +7,7 @@ from volta_referencia import ultima_saida_oficial, viagem_por_referencia
 
 
 MARCADOR_FIM_BLOCO = "operacao_encerrada_bloco"
+PONTOS_FINAIS_GARAGEM = {"ru", "fitotecnia", "solos_neas_florestal", "garagem"}
 
 
 def _minutos(hora):
@@ -46,7 +47,6 @@ def _proxima_saida_apos_bloco(indice_bloco, agora):
             "proximo_dia_util": False,
         }
 
-    # Último bloco do dia: a próxima saída é o primeiro bloco do próximo dia útil.
     dias = 1
     proximo_dia = agora + timedelta(days=dias)
     while proximo_dia.weekday() >= 5:
@@ -78,13 +78,50 @@ def _formatar_proxima(proxima):
     return f"{viagem['hora']} — {origem}"
 
 
-def _contexto_ultima_volta(estado, agora):
+def _viagem_atual_e_bloco(estado, agora):
     viagem = viagem_por_referencia(estado) or ultima_saida_oficial(agora)
     if not viagem:
-        return ""
-
+        return None, None, None
     indice_bloco, bloco = _bloco_da_viagem(viagem.get("hora"))
-    if bloco is None or viagem.get("hora") != bloco.get("ultima"):
+    return viagem, indice_bloco, bloco
+
+
+def _eh_ultima_volta(estado, agora):
+    viagem, indice_bloco, bloco = _viagem_atual_e_bloco(estado, agora)
+    if not viagem or not bloco or viagem.get("hora") != bloco.get("ultima"):
+        return False, viagem, indice_bloco, bloco
+    return True, viagem, indice_bloco, bloco
+
+
+def _fase_final_ultima_volta(estado, agora):
+    ultima, viagem, indice_bloco, bloco = _eh_ultima_volta(estado, agora)
+    if not ultima:
+        return False, viagem, indice_bloco, bloco
+
+    ponto = (estado or {}).get("ponto_atual")
+    resultado = (estado or {}).get("resultado_rota") or {}
+    if ponto not in PONTOS_FINAIS_GARAGEM:
+        return False, viagem, indice_bloco, bloco
+
+    if ponto == "ru":
+        # RU só representa a etapa final quando é a chegada de retorno, isto é,
+        # quando não existe próximo ponto da rota normal após essa ocorrência.
+        if resultado.get("ponto_atual_id") != "ru" or resultado.get("proximo") is not None:
+            return False, viagem, indice_bloco, bloco
+        return True, viagem, indice_bloco, bloco
+
+    if ponto in {"fitotecnia", "solos_neas_florestal"}:
+        return resultado.get("sentido") == "GARAGEM", viagem, indice_bloco, bloco
+
+    if ponto == "garagem":
+        return True, viagem, indice_bloco, bloco
+
+    return False, viagem, indice_bloco, bloco
+
+
+def _contexto_ultima_volta(estado, agora):
+    ultima, _, indice_bloco, _ = _eh_ultima_volta(estado, agora)
+    if not ultima:
         return ""
 
     proxima_txt = _formatar_proxima(_proxima_saida_apos_bloco(indice_bloco, agora))
@@ -99,26 +136,60 @@ def _contexto_ultima_volta(estado, agora):
 
 
 def _ajustar_ru_da_ultima_volta(texto, estado, agora):
-    """Na última volta do bloco, RU não é o ponto final operacional.
-
-    O circular ainda pode atender Fitotecnia e Solos no percurso até a Garagem.
-    """
-    if (estado or {}).get("ponto_atual") != "ru":
+    """No RU de retorno da última volta, informa o percurso final à Garagem."""
+    fase_final, _, _, _ = _fase_final_ultima_volta(estado, agora)
+    if not fase_final or (estado or {}).get("ponto_atual") != "ru":
         return texto
 
-    viagem = viagem_por_referencia(estado) or ultima_saida_oficial(agora)
-    if not viagem:
-        return texto
-    _, bloco = _bloco_da_viagem(viagem.get("hora"))
-    if bloco is None or viagem.get("hora") != bloco.get("ultima"):
-        return texto
-
-    texto = texto.replace(
-        "🏁 Fim da volta confirmado no RU.",
+    substituto = (
         "📍 Chegada ao RU confirmada.\n"
-        "↩️ Na última volta do bloco, o circular ainda pode seguir por Fitotecnia e Solos antes da Garagem.",
+        "🏁 Última volta do bloco — sentido Garagem.\n"
+        "↩️ O circular ainda pode passar por Fitotecnia e Solos antes de chegar à Garagem."
     )
+    textos_antigos = [
+        "🏁 Fim da volta confirmado no RU.",
+        (
+            "📍 Chegada ao RU confirmada.\n"
+            "↩️ Na última volta do bloco, o circular ainda pode seguir por Fitotecnia e Solos antes da Garagem."
+        ),
+    ]
+    for antigo in textos_antigos:
+        texto = texto.replace(antigo, substituto)
     return texto
+
+
+def _resumo_fase_final(estado, agora):
+    fase_final, viagem, indice_bloco, _ = _fase_final_ultima_volta(estado, agora)
+    if not fase_final or not viagem:
+        return None
+
+    proxima_txt = _formatar_proxima(_proxima_saida_apos_bloco(indice_bloco, agora))
+    if not proxima_txt:
+        return None
+
+    ponto = (estado or {}).get("ponto_atual")
+    resultado = (estado or {}).get("resultado_rota") or {}
+    linhas = [
+        "🚌 <b>Circular UFRB — Principal</b>",
+        "",
+        f"🏁 <b>Última volta do bloco — {viagem['hora']}</b>",
+        "🅿️ <b>Etapa final / sentido Garagem</b>",
+    ]
+
+    if ponto == "ru":
+        linhas.append("📍 Chegada ao RU confirmada; ainda pode passar por Fitotecnia e Solos.")
+    elif ponto == "fitotecnia":
+        linhas.append("📍 Última confirmação: Fitotecnia — seguindo para a Garagem.")
+    elif ponto == "solos_neas_florestal":
+        linhas.append("📍 Última confirmação: Solos / NEAS / Eng. Florestal — seguindo para a Garagem.")
+    elif ponto == "garagem" or resultado.get("garagem_confirmada"):
+        linhas.append("📍 Circular na Garagem.")
+
+    linhas += [
+        "",
+        f"⏰ <b>Próxima volta: {proxima_txt}</b>",
+    ]
+    return "\n".join(linhas)
 
 
 def _resumo_bloco_encerrado(estado, agora):
@@ -177,15 +248,21 @@ class BusState(_entry.BusState):
         return resposta
 
     async def resumo_horarios(self):
-        # Primeiro deixa a lógica central expirar/encerrar o bloco e persistir
-        # o estado. Em seguida, o marcador de encerramento tem prioridade sobre
-        # qualquer inferência puramente baseada no horário da última saída.
+        # Primeiro deixa a lógica central atualizar/persistir o estado. Depois,
+        # a etapa final da última volta substitui "volta em andamento" por um
+        # estado de encerramento; se o bloco já fechou, o marcador tem prioridade.
         resposta = await super().resumo_horarios()
         estado = await self._carregar()
         agora = _entry.agora_local()
+
         encerrado = _resumo_bloco_encerrado(estado, agora)
         if encerrado:
             return {"texto": encerrado}
+
+        fase_final = _resumo_fase_final(estado, agora)
+        if fase_final:
+            return {"texto": fase_final}
+
         return resposta
 
 
