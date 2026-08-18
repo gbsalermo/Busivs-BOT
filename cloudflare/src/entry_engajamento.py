@@ -65,9 +65,8 @@ class BusState(_BusStateBase):
             consultas = json.loads(bruto) if bruto else []
         except Exception:
             consultas = []
-        # Mantém todas as consultas da volta. A deduplicação acontece somente
-        # ao montar o lote, para uma consulta posterior não apagar uma anterior
-        # que ainda pertença à janela válida do aviso.
+        # Preserva todas as consultas da volta. Uma consulta posterior não pode
+        # apagar uma anterior que ainda pertença à janela válida de um aviso.
         consultas = [c for c in consultas if c.get("chave") == chave]
         consultas.append({"chave": chave, "telegram_id": str(telegram_id), "consultado_em": agora.isoformat()})
         await self.ctx.storage.put("engajamento_consultas", json.dumps(consultas[-150:], ensure_ascii=False))
@@ -151,6 +150,18 @@ class BusState(_BusStateBase):
         corte_segundo = segundo_em - timedelta(minutes=ANTECEDENCIA_CORTE_MIN)
         avisos_volta = int(contador.get("avisos", 0))
 
+        # O autor da última confirmação tem um fluxo próprio (+8/+13). Ele é
+        # retirado dos lotes principais para não receber dois convites muito
+        # próximos caso também tenha consultado "Onde está o ônibus?".
+        autor = estado.get("telegram_id") if confirmacao_valida else None
+        autor = str(autor) if autor is not None else None
+        autor_valido = bool(autor and autor != "admin" and (admin_id is None or autor == str(admin_id)))
+
+        def sem_autor(ids):
+            if not autor_valido:
+                return ids
+            return [telegram_id for telegram_id in ids if telegram_id != autor]
+
         # Primeiro lote: não encerra a etapa se o cron não encontrar candidato.
         # O corte continua fixo em 1 minuto antes do disparo planejado.
         if (
@@ -159,6 +170,7 @@ class BusState(_BusStateBase):
             and primeiro_em <= agora < autor_em
         ):
             ids = await self._consultas_da_janela(chave_volta, base_tempo, corte_primeiro, admin_id)
+            ids = sem_autor(ids)
             if ids:
                 fluxo["primeiro_enviado"] = True
                 fluxo["primeiro_encerrado"] = True
@@ -182,9 +194,6 @@ class BusState(_BusStateBase):
             fluxo["primeiro_encerrado"] = True
             fluxo["autor_enviado"] = True
             await self.ctx.storage.put("engajamento_fluxo", json.dumps(fluxo, ensure_ascii=False))
-            autor = estado.get("telegram_id") if confirmacao_valida else None
-            autor = str(autor) if autor is not None else None
-            autor_valido = bool(autor and autor != "admin" and (admin_id is None or autor == str(admin_id)))
             if autor_valido:
                 return {
                     "enviar": True,
@@ -204,6 +213,7 @@ class BusState(_BusStateBase):
             and agora >= segundo_em
         ):
             ids = await self._consultas_da_janela(chave_volta, base_tempo, corte_segundo, admin_id)
+            ids = sem_autor(ids)
             if ids:
                 fluxo["segundo_enviado"] = True
                 await self.ctx.storage.put("engajamento_fluxo", json.dumps(fluxo, ensure_ascii=False))
