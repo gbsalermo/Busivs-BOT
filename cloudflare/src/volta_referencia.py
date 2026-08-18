@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from dados import HORARIOS
+from dados import BLOCOS_PRINCIPAL, HORARIOS
 from regras import estimar_chegada_portao_1
 
 JANELA_RU_REFERENCIA_MINUTOS = 10
@@ -36,6 +36,18 @@ def _indice_hora(hora):
     for i, viagem in enumerate(HORARIOS.get("principal", [])):
         if viagem.get("hora") == hora:
             return i
+    return None
+
+
+def _bloco_da_viagem(hora):
+    if not hora:
+        return None
+    minuto = int(hora[:2]) * 60 + int(hora[3:5])
+    for bloco in BLOCOS_PRINCIPAL:
+        ini = int(bloco["inicio"][:2]) * 60 + int(bloco["inicio"][3:5])
+        fim = int(bloco["ultima"][:2]) * 60 + int(bloco["ultima"][3:5])
+        if ini <= minuto <= fim:
+            return bloco
     return None
 
 
@@ -126,17 +138,10 @@ def _liberacao_por_retorno(estado, agora, proxima):
         return None
 
     saida_proxima = _momento(proxima["hora"], agora)
-    # A volta seguinte nunca é inferida antes do próprio horário oficial.
     return max(saida_proxima, confirmado_em + timedelta(minutes=eta))
 
 
 def limite_referencia(estado, agora):
-    """Momento em que a referência antiga deixa de dominar o algoritmo.
-
-    Com confirmação clara no retorno, usa o ETA restante do ponto até o RU.
-    Sem confirmação útil, aplica um teto geral de 15 minutos após a próxima
-    saída oficial e então devolve o controle às regras normais/pico existentes.
-    """
     atual = viagem_por_referencia(estado)
     proxima = proxima_apos_referencia(estado)
     if atual is None or proxima is None:
@@ -224,6 +229,8 @@ def resumo_referenciado(estado, agora, resumo_padrao):
     manual = bool((estado or {}).get("saida_referencia_manual"))
     origem = atual.get("origem", "")
     modo = "ajustada manualmente pelo administrador" if manual else "fixada pelas confirmações de passagem"
+    bloco_atual = _bloco_da_viagem(atual["hora"])
+    ultima_do_bloco = bool(bloco_atual and bloco_atual.get("ultima") == atual.get("hora"))
 
     linhas = [
         "🚌 <b>Circular UFRB — Principal</b>",
@@ -231,17 +238,26 @@ def resumo_referenciado(estado, agora, resumo_padrao):
         "🔵 <b>Volta confirmada em andamento</b>",
         f"🕐 Referência: <b>{atual['hora']}</b> — {origem}",
         f"🚪 Referência do Portão 1: <b>{previsao['inicio']}–{previsao['fim']}</b>",
+    ]
+
+    if ultima_do_bloco:
+        linhas.append("🏁 <b>Esta é a última volta deste bloco operacional.</b>")
+
+    linhas += [
         f"📌 Esta referência está {modo}.",
         "ℹ️ Ela permanece enquanto ainda for operacionalmente plausível.",
     ]
 
     if proxima:
-        limite = limite_referencia(estado, agora)
+        proximo_bloco = _bloco_da_viagem(proxima["hora"])
         linhas += [
             "",
             "🟢 <b>Próxima saída oficial</b>",
             f"🕐 <b>{proxima['hora']}</b> — {proxima.get('origem', '')}",
         ]
+        if ultima_do_bloco and proximo_bloco and bloco_atual and proximo_bloco.get("id") != bloco_atual.get("id"):
+            linhas.append("📦 Essa próxima saída já pertence ao próximo bloco operacional.")
+        limite = limite_referencia(estado, agora)
         if limite:
             linhas.append(f"⏳ Referência atual válida, no máximo, até <b>{limite.strftime('%H:%M')}</b> sem nova evidência.")
 

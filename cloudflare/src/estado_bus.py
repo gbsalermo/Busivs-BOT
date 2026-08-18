@@ -1,4 +1,5 @@
 import estado_bus_core as _core
+from datetime import datetime, timedelta
 
 from dados import BLOCOS_PRINCIPAL, HORARIOS, PONTOS, ROTA
 from transicao_bloco import confirmacao_inicia_novo_bloco
@@ -12,10 +13,28 @@ from volta_referencia import (
     viagem_por_referencia,
 )
 
+MICRO_BIBLIOTECA_RETORNO_MINUTOS = 15
+
 
 def _minutos(hora):
     h, m = map(int, hora.split(":"))
     return h * 60 + m
+
+
+def _dt(valor):
+    if not valor:
+        return None
+    try:
+        return datetime.fromisoformat(str(valor))
+    except (TypeError, ValueError):
+        return None
+
+
+def _indice_ponto_sentido(ponto_id, sentido):
+    for indice, item in enumerate(ROTA):
+        if item["ponto_id"] == ponto_id and item.get("sentido_apos") == sentido:
+            return indice
+    return None
 
 
 def _bloco_por_referencia(hora):
@@ -29,6 +48,55 @@ def _bloco_por_referencia(hora):
         if inicio <= minuto <= fim:
             candidatos.append(bloco)
     return candidatos[0] if candidatos else None
+
+
+def _bloco_atual_ou_referenciado(estado, agora):
+    bloco = _bloco_por_referencia((estado or {}).get("saida_referencia"))
+    if bloco is not None:
+        return bloco
+
+    minuto = agora.hour * 60 + agora.minute
+    candidatos = [
+        bloco for bloco in BLOCOS_PRINCIPAL
+        if _minutos(bloco["inicio"]) <= minuto
+    ]
+    return max(candidatos, key=lambda b: _minutos(b["inicio"])) if candidatos else None
+
+
+def _contexto_pos_ru(estado, agora):
+    """Explica o que tende a acontecer após uma chegada confirmada ao RU."""
+    resultado = (estado or {}).get("resultado_rota") or {}
+    if (estado or {}).get("ponto_atual") != "ru":
+        return ""
+    if resultado.get("ponto_atual_id") != "ru" or resultado.get("proximo") is not None:
+        return ""
+
+    bloco = _bloco_atual_ou_referenciado(estado, agora)
+    if bloco is None:
+        return ""
+
+    inicio = _minutos(bloco["inicio"])
+    fim = _minutos(bloco["ultima"])
+    agora_min = agora.hour * 60 + agora.minute
+    proximas = [
+        viagem for viagem in HORARIOS.get("principal", [])
+        if inicio <= _minutos(viagem["hora"]) <= fim
+        and _minutos(viagem["hora"]) > agora_min
+    ]
+
+    if proximas:
+        proxima = min(proximas, key=lambda v: _minutos(v["hora"]))
+        return (
+            "\n\n⏰ Próxima saída prevista neste bloco:"
+            f"\n     🕐 {proxima['hora']} — {proxima.get('origem', 'RU/Residências')}"
+            "\nℹ️ A confirmação no RU pode representar o fim da volta anterior ou a preparação para essa próxima saída."
+        )
+
+    return (
+        "\n\n🅿️ Não há outra saída prevista neste bloco."
+        "\n🚌 Após concluir esta volta no RU, o circular provavelmente segue no percurso de retorno para a Garagem."
+        "\nℹ️ Uma nova confirmação de ponto tem prioridade sobre essa estimativa."
+    )
 
 
 def _proximo_manual(indice):
@@ -92,7 +160,65 @@ def _resultado_correcao_manual(ponto_id, sentido):
     return None
 
 
+def _deve_biblioteca_micro_ser_retorno(estado_antes, agora):
+    if not estado_antes or not estado_antes.get("ponto_atual"):
+        return False
+
+    confirmado_em = _dt(estado_antes.get("horario"))
+    if confirmado_em is None or confirmado_em.date() != agora.date():
+        return False
+
+    if agora - confirmado_em < timedelta(minutes=MICRO_BIBLIOTECA_RETORNO_MINUTOS):
+        return False
+
+    resultado = estado_antes.get("resultado_rota") or {}
+    indice_atual = resultado.get("indice_atual")
+    indice_biblioteca_ida = _indice_ponto_sentido("biblioteca", "RUA")
+    indice_biblioteca_retorno = _indice_ponto_sentido("biblioteca", "RU")
+
+    if indice_biblioteca_ida is None or indice_biblioteca_retorno is None:
+        return False
+
+    # A heurística temporal só atua quando a última confirmação conhecida ainda
+    # está na metade de ida. Se o micro já estava no retorno, a sequência normal
+    # da rota continua tendo prioridade.
+    return indice_atual is not None and indice_atual < indice_biblioteca_ida
+
+
 class BusState(_core.BusState):
+    async def registrar_micro(self, ponto_id, telegram_id=None):
+        estado_antes = await self._carregar_chave_estado("estado_micro")
+        agora = _core.agora_local()
+        forcar_biblioteca_retorno = (
+            ponto_id == "biblioteca"
+            and _deve_biblioteca_micro_ser_retorno(estado_antes, agora)
+        )
+
+        resultado = await super().registrar_micro(ponto_id, telegram_id)
+        if not resultado.get("aceito") or not forcar_biblioteca_retorno:
+            return resultado
+
+        estado = await self._carregar_chave_estado("estado_micro")
+        indice = _indice_ponto_sentido("biblioteca", "RU")
+        if indice is None:
+            return resultado
+
+        resultado_rota = {
+            "ponto_anterior": PONTOS.get(estado_antes.get("ponto_atual"), {}).get("nome"),
+            "ponto_atual": PONTOS["biblioteca"]["nome"],
+            "ponto_atual_id": "biblioteca",
+            "indice_atual": indice,
+            "sentido": "RU",
+            "proximo": _proximo_manual(indice),
+            "estimado_por_tempo": True,
+            "tempo_minimo_retorno_min": MICRO_BIBLIOTECA_RETORNO_MINUTOS,
+        }
+        estado["resultado_rota"] = resultado_rota
+        await self._salvar_chave_estado("estado_micro", estado)
+        resultado["resultado_rota"] = resultado_rota
+        resultado["biblioteca_retorno_por_tempo"] = True
+        return resultado
+
     async def registrar(self, ponto_id, telegram_id=None):
         estado_antes = await self._carregar()
         agora = _core.agora_local()
@@ -146,6 +272,8 @@ class BusState(_core.BusState):
         agora = _core.agora_local()
         viagem = viagem_por_referencia(estado)
         provavel = proxima_volta_provavel(estado, agora)
+
+        resposta["texto"] += _contexto_pos_ru(estado, agora)
 
         if provavel:
             atual = provavel["viagem_anterior"]
