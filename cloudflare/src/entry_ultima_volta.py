@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import entry_engajamento as _entry
 from entry_engajamento import *
@@ -8,6 +8,7 @@ from volta_referencia import ultima_saida_oficial, viagem_por_referencia
 
 MARCADOR_FIM_BLOCO = "operacao_encerrada_bloco"
 PONTOS_FINAIS_GARAGEM = {"ru", "fitotecnia", "solos_neas_florestal", "garagem"}
+JANELA_RESUMO_ENCERRAMENTO_MINUTOS = 15
 
 
 def _minutos(hora):
@@ -190,6 +191,17 @@ def _resumo_fase_final(estado, agora):
 def _resumo_bloco_encerrado(estado, agora):
     resultado = (estado or {}).get("resultado_rota") or {}
     if not resultado.get(MARCADOR_FIM_BLOCO):
+        return None
+
+    fim_previsto = resultado.get("fim_previsto")
+    try:
+        fim = datetime.fromisoformat(str(fim_previsto)) if fim_previsto else None
+    except (TypeError, ValueError):
+        fim = None
+
+    # O aviso de encerramento é útil apenas logo após o fim da última volta.
+    # Depois disso, Próximos horários deve voltar a priorizar as saídas futuras.
+    if fim is None or agora < fim or agora - fim > timedelta(minutes=JANELA_RESUMO_ENCERRAMENTO_MINUTOS):
         return None
 
     ultima = resultado.get("ultima_volta")
