@@ -39,7 +39,10 @@ def blocos_no_dia(referencia):
             if previsao.get("noturno")
             else TOLERANCIA_RETORNO_DIA_MINUTOS
         )
-        fim_base = fim_p1 + timedelta(minutes=tolerancia)
+        if definicao.get("fim"):
+            fim_base = _momento(definicao["fim"], referencia)
+        else:
+            fim_base = fim_p1 + timedelta(minutes=tolerancia)
 
         proximo_inicio = None
         proxima_viagem = None
