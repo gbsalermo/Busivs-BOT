@@ -53,7 +53,7 @@ class BusState(_entry.BusState):
         else:
             # Override administrativo fora da faixa funcional: evita sessão
             # esporádica esquecida indefinidamente.
-            expira = agora + timedelta(minutes=90)
+            expira = agora + timedelta(minutes=30)
 
         await self.ctx.storage.put("micro_ativo", True)
         await self.ctx.storage.put("micro_ativado_em", agora.isoformat())
