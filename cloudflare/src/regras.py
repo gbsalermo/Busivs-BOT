@@ -1,6 +1,6 @@
 import regras_core as _core
 
-HORARIOS_NOTURNOS_RAPIDOS = {"20:40", "21:40", "22:30"}
+HORARIOS_NOTURNOS_RAPIDOS = {"20:00", "20:40", "21:40", "22:30"}
 
 
 def _estimar_chegada_portao_1_noturno_rapido(hora_saida):
