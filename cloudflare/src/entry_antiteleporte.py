@@ -1,8 +1,8 @@
-from datetime import timedelta
+from datetime import datetime
 
 import entry_admin_hub as _entry
 from entry_admin_hub import *
-from dados import PONTOS, ROTA
+from dados import ROTA
 from regras import agora_local
 
 
