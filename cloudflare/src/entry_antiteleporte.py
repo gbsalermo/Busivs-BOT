@@ -35,6 +35,46 @@ MINIMOS_ESPECIAIS = {
     ("garagem", "torre_cotec"): 20,
 }
 
+# As duas primeiras voltas da manhã e as voltas noturnas são historicamente
+# mais rápidas. O fator reduz apenas a trava anti-teletransporte; não altera
+# previsão oficial nem força localização.
+FATOR_HORARIO_RAPIDO = 0.65
+REFERENCIAS_RAPIDAS_MANHA = {"06:25", "06:50"}
+
+
+def _hora_minutos(hora):
+    try:
+        h, m = map(int, str(hora).split(":"))
+        return h * 60 + m
+    except Exception:
+        return None
+
+
+def _horario_rapido(estado, agora):
+    referencia = (estado or {}).get("saida_referencia")
+    if referencia in REFERENCIAS_RAPIDAS_MANHA:
+        return True
+
+    ref_min = _hora_minutos(referencia)
+    if ref_min is not None and ref_min >= 20 * 60:
+        return True
+
+    # Quando ainda não há referência fixada, usa o relógio apenas nas janelas
+    # claramente pertencentes a esses períodos rápidos.
+    atual = agora.hour * 60 + agora.minute
+    if 6 * 60 + 25 <= atual < 7 * 60 + 10:
+        return True
+    if atual >= 20 * 60:
+        return True
+    return False
+
+
+def _ajustar_minimo_por_horario(minimo, estado, agora):
+    if minimo is None or minimo <= 0 or not _horario_rapido(estado, agora):
+        return minimo
+    # Mantém ao menos 1 minuto para deslocamentos que não são instantâneos.
+    return max(1, int(round(minimo * FATOR_HORARIO_RAPIDO)))
+
 
 def _indice_futuro(estado, ponto_id):
     resultado = (estado or {}).get("resultado_rota") or {}
@@ -77,6 +117,7 @@ def _validar_tempo_minimo(estado, ponto_id, agora):
     minimo = MINIMOS_ESPECIAIS.get((anterior, ponto_id))
     if minimo is None:
         minimo = _minimo_generico(estado, ponto_id)
+    minimo = _ajustar_minimo_por_horario(minimo, estado, agora)
     if minimo is None:
         return None
 
@@ -89,6 +130,7 @@ def _validar_tempo_minimo(estado, ponto_id, agora):
             "ponto_novo": ponto_id,
             "minimo_minutos": minimo,
             "decorrido_minutos": max(0, int(decorrido)),
+            "horario_rapido": _horario_rapido(estado, agora),
         }
     return None
 
