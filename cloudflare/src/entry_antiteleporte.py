@@ -16,6 +16,14 @@ LIMITES_SUSPEITOS = {
     ("portao_1", "ru"): 120,
 }
 
+# Depois de um RU suspeito, estes pontos constituem evidência forte de que o
+# veículo realmente encerrou a volta anterior e já iniciou uma nova volta.
+PONTOS_CLAROS_NOVA_VOLTA_POS_RU = {
+    "fitotecnia",
+    "solos_neas_florestal",
+    "pavilhao_1",
+}
+
 
 def _dt(valor):
     try:
@@ -46,7 +54,92 @@ def _teclado_confirmar(ponto):
 
 
 class BusState(_entry.BusState):
+    async def _carregar_indicacao_fraca(self):
+        estado = await self._carregar()
+        return estado.get("confirmacao_nao_confiavel")
+
+    async def _salvar_indicacao_fraca(self, estado, ponto_id, ponto_anterior):
+        estado["confirmacao_nao_confiavel"] = {
+            "ponto_id": ponto_id,
+            "ponto_anterior": ponto_anterior,
+            "horario": agora_local().isoformat(),
+        }
+        await self._salvar(estado)
+
+    async def _limpar_indicacao_fraca(self, estado=None):
+        estado = estado or await self._carregar()
+        estado.pop("confirmacao_nao_confiavel", None)
+        await self._salvar(estado)
+        return estado
+
+    async def _resolver_indicacao_fraca_com_novo_ponto(self, ponto_id, telegram_id):
+        """Resolve uma indicação suspeita sem deixá-la contaminar a rota confiável.
+
+        A indicação fraca nunca substitui imediatamente o estado confiável. A
+        próxima evidência decide o que aconteceu. Para RU suspeito, Fitotecnia,
+        Solos ou Pav. I comprovam que uma nova volta já começou; Biblioteca
+        contradiz o encerramento e mantém a volta anterior em andamento.
+        """
+        estado = await self._carregar()
+        fraca = estado.get("confirmacao_nao_confiavel")
+        if not fraca:
+            return None
+
+        ponto_fraco = fraca.get("ponto_id")
+
+        # RU suspeito não pode encerrar a volta sozinho.
+        if ponto_fraco == "ru":
+            if ponto_id in PONTOS_CLAROS_NOVA_VOLTA_POS_RU:
+                # A nova evidência prova operacionalmente que houve passagem pelo
+                # RU entre as duas voltas. Limpamos a hipótese e registramos o
+                # ponto novo diretamente como primeira evidência da nova volta.
+                estado.pop("confirmacao_nao_confiavel", None)
+                await self._salvar(estado)
+
+                # Reiniciamos apenas a posição colaborativa para que a sequência
+                # da volta anterior não impeça Fitotecnia/Solos/Pav. I.
+                estado_novo = {
+                    "ponto_anterior": None,
+                    "ponto_atual": None,
+                    "horario": None,
+                    "telegram_id": None,
+                    "resultado_rota": None,
+                    "historico": list(estado.get("historico", []))[-40:],
+                }
+                # Preserva a referência; o wrapper superior ajusta para a próxima
+                # referência quando a evidência de nova volta for processada.
+                for chave in ("saida_referencia", "saida_referencia_manual"):
+                    if chave in estado:
+                        estado_novo[chave] = estado[chave]
+                await self._salvar(estado_novo)
+                return await super().registrar(ponto_id, telegram_id)
+
+            if ponto_id == "biblioteca":
+                # Biblioteca logo após P1 é coerente com o retorno da MESMA volta.
+                # O RU suspeito é descartado e Biblioteca passa a ser o foco real.
+                estado.pop("confirmacao_nao_confiavel", None)
+                await self._salvar(estado)
+                return await super().registrar(ponto_id, telegram_id)
+
+            # Qualquer outra evidência normal também tem prioridade sobre a
+            # hipótese fraca, mas não usamos o RU para encerrar a volta.
+            estado.pop("confirmacao_nao_confiavel", None)
+            await self._salvar(estado)
+            return await super().registrar(ponto_id, telegram_id)
+
+        # Para outras indicações fracas, a próxima evidência normal simplesmente
+        # substitui a hipótese e é avaliada a partir do último estado confiável.
+        estado.pop("confirmacao_nao_confiavel", None)
+        await self._salvar(estado)
+        return await super().registrar(ponto_id, telegram_id)
+
     async def registrar(self, ponto_id, telegram_id=None):
+        # Se já existe uma indicação fraca, a nova evidência deve resolvê-la antes
+        # de qualquer outra inferência ou mudança de volta.
+        resolvido = await self._resolver_indicacao_fraca_com_novo_ponto(ponto_id, telegram_id)
+        if resolvido is not None:
+            return resolvido
+
         estado = await self._carregar()
         agora = agora_local()
         suspeita = _suspeita(estado, ponto_id, agora)
@@ -59,11 +152,6 @@ class BusState(_entry.BusState):
             return {"aceito": False, "motivo": "confirmacao_suspeita", **suspeita}
 
         resultado = await super().registrar(ponto_id, telegram_id)
-        if resultado.get("aceito"):
-            estado = await self._carregar()
-            # Qualquer nova evidência normal substitui uma indicação fraca anterior.
-            estado.pop("confirmacao_nao_confiavel", None)
-            await self._salvar(estado)
         return resultado
 
     async def confirmar_ponto_suspeito(self, ponto_id, telegram_id=None):
@@ -72,17 +160,22 @@ class BusState(_entry.BusState):
         if not pendente or pendente.get("ponto_novo") != ponto_id:
             return {"aceito": False, "motivo": "confirmacao_suspeita_expirada"}
         await self.ctx.storage.delete(chave)
-        resultado = await super().registrar(ponto_id, telegram_id)
-        if resultado.get("aceito"):
-            estado = await self._carregar()
-            estado["confirmacao_nao_confiavel"] = {
-                "ponto_id": ponto_id,
-                "ponto_anterior": pendente.get("ponto_anterior"),
-                "horario": agora_local().isoformat(),
-            }
-            await self._salvar(estado)
-            resultado["nao_confiavel"] = True
-        return resultado
+
+        # Não registramos a indicação suspeita como posição oficial. Ela fica
+        # paralela ao estado confiável até que outra evidência a confirme ou a
+        # contradiga. Isso é essencial para RU não encerrar uma volta por engano.
+        estado = await self._carregar()
+        await self._salvar_indicacao_fraca(
+            estado,
+            ponto_id,
+            pendente.get("ponto_anterior"),
+        )
+        return {
+            "aceito": True,
+            "nao_confiavel": True,
+            "ponto_id": ponto_id,
+            "ponto_anterior": pendente.get("ponto_anterior"),
+        }
 
     async def cancelar_ponto_suspeito(self, telegram_id=None):
         await self.ctx.storage.delete(f"ponto_suspeito:{telegram_id}")
@@ -93,13 +186,15 @@ class BusState(_entry.BusState):
         estado = await self._carregar()
         fraca = estado.get("confirmacao_nao_confiavel")
         if fraca:
+            nome = PONTOS.get(fraca.get("ponto_id"), {}).get("nome", "ponto informado")
             resposta["texto"] += (
-                "\n\n⚠️ <b>Última indicação ainda não é confiável.</b>"
-                "\n📍 Outra confirmação de ponto é necessária para confirmar a localização."
+                f"\n\n⚠️ <b>Indicação não confirmada: {nome}.</b>"
+                "\n📍 A última localização confiável continua sendo a referência."
+                "\n🔎 Outra confirmação de ponto é necessária para validar o trajeto."
             )
-        # RU é chegada/fim da volta. A saída seguinte não é criada pelo relógio:
-        # Fitotecnia é só o primeiro ponto esperado; qualquer ponto de ida pode
-        # comprovar depois que a nova volta começou.
+
+        # RU confiável é chegada/fim da volta. Uma indicação fraca de RU nunca
+        # chega aqui como ponto_atual, portanto não dispara fim de volta.
         if estado.get("ponto_atual") == "ru":
             resposta["texto"] = resposta["texto"].replace("➡️ Sentido: RUA", "🏁 Chegada ao RU — fim da volta.")
             if "Fitotecnia" not in resposta["texto"] and "Garagem" not in resposta["texto"]:
@@ -129,7 +224,7 @@ class Default(_entry.Default):
                 return await _core.enviar_mensagem(
                     self.env.TELEGRAM_BOT_TOKEN,
                     chat_id,
-                    "📍 Indicação registrada.\n⚠️ Como o deslocamento foi muito rápido, outra confirmação de ponto ainda é necessária para validar a localização.",
+                    "📍 Indicação registrada como não confirmada.\n⚠️ Ela não altera o fim da volta nem a última localização confiável até surgir outra evidência.",
                     reply_markup=_core.teclado_voltar(),
                 )
             return await self._resultado_ponto(chat_id, resultado)
