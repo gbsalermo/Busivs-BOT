@@ -119,3 +119,32 @@ def test_ru_respeita_referencia_manual_1300_mesmo_apos_1325():
     assert not confirmacao_inicia_novo_bloco(estado, "ru", agora)
     assert estado["saida_referencia"] == "13:00"
     assert estado["saida_referencia_manual"] is True
+
+
+def test_fitotecnia_apos_ru_final_libera_referencia_manual_para_nova_volta():
+    estado = _estado_anterior(
+        horario=datetime(2026, 8, 19, 13, 27, tzinfo=FUSO),
+        referencia="13:00",
+        manual=True,
+    )
+    agora = datetime(2026, 8, 19, 13, 29, tzinfo=FUSO)
+
+    assert confirmacao_inicia_novo_bloco(estado, "fitotecnia", agora)
+
+
+def test_referencia_manual_nao_cai_antes_do_ru_finalizar():
+    estado = _estado_anterior(
+        horario=datetime(2026, 8, 19, 13, 27, tzinfo=FUSO),
+        referencia="13:00",
+        manual=True,
+    )
+    estado["ponto_atual"] = "biblioteca"
+    estado["resultado_rota"] = {
+        "ponto_atual_id": "biblioteca",
+        "indice_atual": 11,
+        "sentido": "RU",
+        "proximo": {"id": "torre_cotec", "nome": "Torre / COTEC"},
+    }
+    agora = datetime(2026, 8, 19, 13, 29, tzinfo=FUSO)
+
+    assert not confirmacao_inicia_novo_bloco(estado, "fitotecnia", agora)
