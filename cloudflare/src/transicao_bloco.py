@@ -60,18 +60,16 @@ def _ultima_saida_ru_recente(agora):
 def _ru_inicia_nova_volta(estado, agora):
     """Reconhece RU como início de uma nova saída oficial próxima.
 
-    Há dois casos válidos:
-    1. a confirmação salva é anterior à nova saída do RU;
-    2. a volta anterior chegou atrasada ao RU depois do horário oficial, mas o
-       estado ainda carrega uma referência de volta mais antiga. Nesse caso o
-       timestamp sozinho não basta: a referência antiga prova que um novo RU
-       pode representar o início da saída mais recente.
-
-    Se o estado já está referenciado na própria saída recente, não reiniciamos o
-    contexto; isso evita transformar dois votos de RU da mesma volta em wraps.
+    Uma referência escolhida manualmente pelo administrador é autoritativa:
+    enquanto ela estiver marcada como manual, uma confirmação no RU representa
+    o fechamento/continuação daquela volta e não pode ser promovida apenas pelo
+    relógio para a saída oficial mais recente.
     """
     confirmado_em = _confirmado_em(estado)
     if confirmado_em is None or confirmado_em.date() != agora.date():
+        return False
+
+    if (estado or {}).get("saida_referencia_manual"):
         return False
 
     recente = _ultima_saida_ru_recente(agora)
@@ -81,16 +79,12 @@ def _ru_inicia_nova_volta(estado, agora):
     saida, viagem = recente
     referencia_estado = (estado or {}).get("saida_referencia")
 
-    # O estado já pertence à saída atual: um novo RU não deve abrir outra volta.
     if referencia_estado == viagem["hora"]:
         return False
 
-    # Caso clássico: a nova saída ocorreu depois da última confirmação salva.
     if confirmado_em < saida:
         return True
 
-    # Caso de atraso/cascata: a confirmação anterior aconteceu depois do horário
-    # oficial, mas ainda pertence explicitamente a uma referência mais antiga.
     if referencia_estado:
         return referencia_estado != viagem["hora"]
 
@@ -102,8 +96,6 @@ def _ponto_compativel(ponto_id, bloco, agora):
     if not ocorrencias:
         return False
 
-    # RU só troca o contexto aqui quando uma nova saída oficial do próprio RU
-    # já foi detectada por _ru_inicia_nova_volta.
     if ponto_id == "ru":
         return False
 
@@ -129,7 +121,8 @@ def confirmacao_inicia_novo_bloco(estado, ponto_id, agora):
 
     Além de transições entre blocos, RU pode iniciar uma nova volta dentro do
     mesmo bloco quando uma nova saída oficial do RU ocorreu e o estado salvo
-    ainda pertence a uma referência anterior.
+    ainda pertence a uma referência anterior. Referências manuais têm prioridade
+    e não são substituídas automaticamente por uma confirmação no RU.
     """
     confirmado_em = _confirmado_em(estado)
     if confirmado_em is None or confirmado_em.date() != agora.date():
