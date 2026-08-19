@@ -298,14 +298,16 @@ class Default(WorkerEntrypoint):
             texto = "Valeu! Registramos o ponto 😊"
         elif resultado.get("motivo") == "duplicado":
             texto = "Obrigado pela informação 😊"
-        elif resultado.get("motivo") == "deslocamento_improvavel":
-            texto = "⚠️ Essa confirmação parece incompatível com a última passagem registrada."
+        elif resultado.get("motivo") in {"deslocamento_improvavel", "deslocamento_impossivel_tempo"}:
+            texto = "⚠️ Já houve uma confirmação recente em outro ponto. Esse deslocamento seria rápido demais, então mantivemos a localização anterior."
         elif resultado.get("motivo") == "ordem_rota_invalida":
             texto = "⚠️ Esse ponto não é compatível com a sequência atual do trajeto."
         elif resultado.get("motivo") in {"fora_circulacao", "micro_inativo"}:
             texto = "🚫 Não há percurso ativo para esse veículo no momento."
-        else:
+        elif resultado.get("motivo") in {"ponto_invalido", "ponto_desconhecido"}:
             texto = "⚠️ Não consegui reconhecer esse ponto."
+        else:
+            texto = "⚠️ Não foi possível registrar essa confirmação agora. Tente novamente em instantes."
         return await enviar_mensagem(self.env.TELEGRAM_BOT_TOKEN, chat_id, texto, reply_markup=teclado_voltar())
 
     async def _acao(self, acao, chat_id, telegram_id=None):
