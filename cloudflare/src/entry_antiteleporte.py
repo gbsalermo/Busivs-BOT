@@ -7,11 +7,13 @@ from dados import ROTA
 from regras import agora_local
 
 
-# Regra simples e conservadora:
-# - 1 minuto mínimo por ponto obrigatório avançado;
-# - pontos opcionais não aumentam o mínimo;
+# Regra temporária e flexível:
+# - 30 segundos mínimos por ponto/etapa avançada na rota;
+# - os tempos se acumulam quando vários pontos são pulados;
+# - Portão 1 -> Biblioteca mantém mínimo especial de 1 minuto;
 # - sem confirmação anterior, qualquer ponto pode ser a primeira evidência;
 # - se a mesma pessoa repetir o mesmo ponto após um bloqueio, a reafirmação passa.
+SEGUNDOS_POR_PONTO = 30
 JANELA_REAFIRMACAO_MINUTOS = 2
 CHAVE_TENTATIVA = "antiteleporte_tentativa"
 
@@ -25,6 +27,7 @@ SEQUENCIA_SAIDA_GARAGEM = [
     "pavilhao_1",
     "biblioteca",
     "pavilhao_2",
+    "pavilhao_engenharia",
     "portao_2",
     "ponto_externo_1",
     "ponto_externo_2",
@@ -51,27 +54,25 @@ def _indice_destino_futuro(indice_atual, ponto_id):
     return min(candidatos) if candidatos else None
 
 
-def _pontos_obrigatorios_entre(indice_atual, indice_destino):
-    """Conta avanços físicos, ignorando pontos opcionais.
+def _etapas_entre(indice_atual, indice_destino):
+    """Conta cada etapa/ponto avançado na rota, inclusive pontos opcionais.
 
-    Ex.: Biblioteca -> Pav. II = 1 minuto.
-         Biblioteca -> Portão 2 = 2 minutos, pois passa pelo Pav. II;
-         Pav. Engenharia é opcional e não acrescenta tempo mínimo.
+    A trava é propositalmente leve: cada etapa soma apenas 30 segundos.
+    Assim, pular quatro etapas exige 2 minutos; se houver uma confirmação
+    intermediária, a contagem recomeça a partir dela.
     """
     if indice_destino <= indice_atual:
         return None
-
-    obrigatorios = 0
-    for i in range(indice_atual + 1, indice_destino + 1):
-        item = ROTA[i]
-        if item.get("opcional", False):
-            continue
-        obrigatorios += 1
-    return obrigatorios
+    return indice_destino - indice_atual
 
 
-def _minimo_da_rota(estado, ponto_id):
+def _minimo_segundos_da_rota(estado, ponto_id):
     anterior = (estado or {}).get("ponto_atual")
+
+    # Esse trecho é fisicamente mais longo que os demais e mantém 1 minuto.
+    if anterior == "portao_1" and ponto_id == "biblioteca":
+        return 60
+
     if anterior == "garagem":
         if ponto_id == "ru":
             return 0
@@ -79,8 +80,7 @@ def _minimo_da_rota(estado, ponto_id):
             indice = SEQUENCIA_SAIDA_GARAGEM.index(ponto_id)
         except ValueError:
             return None
-        # RU é posição zero; cada ponto obrigatório seguinte soma 1 minuto.
-        return max(1, indice)
+        return max(SEGUNDOS_POR_PONTO, indice * SEGUNDOS_POR_PONTO)
 
     atual = _indice_atual(estado)
     if atual is None:
@@ -90,7 +90,10 @@ def _minimo_da_rota(estado, ponto_id):
     if destino is None:
         return None
 
-    return _pontos_obrigatorios_entre(atual, destino)
+    etapas = _etapas_entre(atual, destino)
+    if etapas is None:
+        return None
+    return etapas * SEGUNDOS_POR_PONTO
 
 
 def _parse_horario(valor):
@@ -157,15 +160,15 @@ class BusState(_entry.BusState):
             await self._salvar_tentativa_antiteleporte(None)
             return await super().registrar(ponto_id, telegram_id)
 
-        minimo = _minimo_da_rota(estado, ponto_id)
-        if minimo is None:
+        minimo_segundos = _minimo_segundos_da_rota(estado, ponto_id)
+        if minimo_segundos is None:
             # A validação estrutural existente continua responsável por ordem
             # inválida, mudança de volta e demais casos especiais.
             await self._salvar_tentativa_antiteleporte(None)
             return await super().registrar(ponto_id, telegram_id)
 
-        decorrido = (agora - horario).total_seconds() / 60
-        if decorrido + 0.05 < minimo:
+        decorrido_segundos = max(0, (agora - horario).total_seconds())
+        if decorrido_segundos + 3 < minimo_segundos:
             await self._salvar_tentativa_antiteleporte({
                 "telegram_id": str(telegram_id) if telegram_id is not None else None,
                 "ponto_id": ponto_id,
@@ -177,8 +180,10 @@ class BusState(_entry.BusState):
                 "motivo": "deslocamento_impossivel_tempo",
                 "ponto_anterior": anterior,
                 "ponto_novo": ponto_id,
-                "minimo_minutos": minimo,
-                "decorrido_minutos": max(0, int(decorrido)),
+                "minimo_segundos": minimo_segundos,
+                "minimo_minutos": minimo_segundos / 60,
+                "decorrido_segundos": int(decorrido_segundos),
+                "decorrido_minutos": int(decorrido_segundos // 60),
                 "pode_reafirmar": telegram_id is not None,
             }
 
