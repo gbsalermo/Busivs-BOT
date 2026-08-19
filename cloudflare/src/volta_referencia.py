@@ -1,18 +1,9 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from dados import BLOCOS_PRINCIPAL, HORARIOS
 from regras import estimar_chegada_portao_1
 
 JANELA_RU_REFERENCIA_MINUTOS = 10
-LIMITE_REFERENCIA_APOS_PROXIMA_MINUTOS = 15
-
-ETA_RETORNO_RU_MINUTOS = {
-    "ponto_externo_2": 25,
-    "portao_1": 20,
-    "biblioteca": 10,
-    "torre_cotec": 5,
-    "ru": 2,
-}
 
 
 def _momento(hora, referencia):
@@ -64,6 +55,7 @@ def ultima_saida_oficial(agora):
 
 
 def saida_ru_recente(agora):
+    """Usada apenas para associar uma referência inicial, nunca para trocar volta."""
     candidatas = []
     for viagem in HORARIOS.get("principal", []):
         if not _origem_ru(viagem):
@@ -115,79 +107,22 @@ def _proximas_apos_viagem(viagem, quantidade=3):
     return HORARIOS.get("principal", [])[indice + 1:indice + 1 + quantidade]
 
 
-def _confirmacao_em(estado):
-    valor = (estado or {}).get("horario")
-    if not valor:
-        return None
-    try:
-        return datetime.fromisoformat(str(valor))
-    except (TypeError, ValueError):
-        return None
-
-
-def _liberacao_por_retorno(estado, agora, proxima):
-    resultado = (estado or {}).get("resultado_rota") or {}
-    if resultado.get("sentido") != "RU":
-        return None
-    ponto_id = (estado or {}).get("ponto_atual")
-    eta = ETA_RETORNO_RU_MINUTOS.get(ponto_id)
-    if eta is None:
-        return None
-    confirmado_em = _confirmacao_em(estado)
-    if confirmado_em is None or confirmado_em.date() != agora.date():
-        return None
-    saida_proxima = _momento(proxima["hora"], agora)
-    return max(saida_proxima, confirmado_em + timedelta(minutes=eta))
-
-
 def limite_referencia(estado, agora):
-    atual = viagem_por_referencia(estado)
-    proxima = proxima_apos_referencia(estado)
-    if atual is None or proxima is None:
-        return None
-    saida_proxima = _momento(proxima["hora"], agora)
-    teto = saida_proxima + timedelta(minutes=LIMITE_REFERENCIA_APOS_PROXIMA_MINUTOS)
-    retorno = _liberacao_por_retorno(estado, agora, proxima)
-    if retorno is not None:
-        return min(retorno, teto)
-    return teto
+    """Compatibilidade: referências não expiram por horário dentro do bloco."""
+    return None
 
 
 def referencia_ainda_valida(estado, agora):
-    atual = viagem_por_referencia(estado)
-    if atual is None:
-        return False
-    limite = limite_referencia(estado, agora)
-    return limite is None or agora < limite
+    return viagem_por_referencia(estado) is not None
 
 
 def proxima_volta_provavel(estado, agora):
-    atual = viagem_por_referencia(estado)
-    proxima = proxima_apos_referencia(estado)
-    if atual is None or proxima is None:
-        return None
-    limite = limite_referencia(estado, agora)
-    if limite is None or agora < limite:
-        return None
-    retorno = _liberacao_por_retorno(estado, agora, proxima)
-    return {
-        "viagem_anterior": atual,
-        "viagem_provavel": proxima,
-        "confirmado_em": _confirmacao_em(estado),
-        "liberado_em": limite,
-        "ponto_id": (estado or {}).get("ponto_atual"),
-        "por_retorno": retorno is not None and limite == min(
-            retorno,
-            _momento(proxima["hora"], agora) + timedelta(minutes=LIMITE_REFERENCIA_APOS_PROXIMA_MINUTOS),
-        ),
-    }
+    """Não inferir nova volta apenas porque o relógio passou da próxima saída."""
+    return None
 
 
 def limpar_referencia_expirada(estado, agora):
-    if not estado or referencia_ainda_valida(estado, agora):
-        return estado
-    estado.pop("saida_referencia", None)
-    estado.pop("saida_referencia_manual", None)
+    """A expiração operacional é responsabilidade do fechamento de bloco."""
     return estado
 
 
@@ -206,22 +141,6 @@ def resumo_referenciado(estado, agora, resumo_padrao):
     if atual is None:
         return resumo_padrao
 
-    provavel = proxima_volta_provavel(estado, agora)
-    if provavel:
-        viagem = provavel["viagem_provavel"]
-        p = estimar_chegada_portao_1(viagem["hora"])
-        linhas = [
-            "🚌 <b>Circular UFRB — Principal</b>",
-            "",
-            "🟡 <b>Próxima volta provavelmente em andamento</b>",
-            f"🕐 Referência provável: <b>{viagem['hora']}</b> — {viagem.get('origem', '')}",
-            f"🚪 Referência do Portão 1: <b>{p['inicio']}–{p['fim']}</b>",
-            "",
-            f"📌 Última volta confirmada: <b>{atual['hora']}</b> — {atual.get('origem', '')}",
-        ]
-        _adicionar_proximas(linhas, viagem, 3)
-        return "\n".join(linhas)
-
     previsao = estimar_chegada_portao_1(atual["hora"])
     origem = atual.get("origem", "")
     bloco_atual = _bloco_da_viagem(atual["hora"])
@@ -230,9 +149,10 @@ def resumo_referenciado(estado, agora, resumo_padrao):
     linhas = [
         "🚌 <b>Circular UFRB — Principal</b>",
         "",
-        "🔵 <b>Volta confirmada em andamento</b>",
+        "🔵 <b>Volta de referência atual</b>",
         f"🕐 Referência: <b>{atual['hora']}</b> — {origem}",
         f"🚪 Referência do Portão 1: <b>{previsao['inicio']}–{previsao['fim']}</b>",
+        "ℹ️ A referência permanece até que os pontos indiquem uma nova volta ou o bloco termine.",
     ]
 
     if ultima_do_bloco:
