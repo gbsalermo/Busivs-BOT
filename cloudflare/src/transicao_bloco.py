@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 
 from blocos_operacionais import blocos_no_dia
-from dados import HORARIOS, ROTA
+from dados import BLOCOS_PRINCIPAL, HORARIOS, ROTA
 from regras import estimar_chegada_portao_1
 
 MARGEM_RETORNO_MINUTOS = 5
@@ -55,6 +55,31 @@ def _ultima_saida_ru_recente(agora):
         if saida <= agora and agora - saida <= timedelta(minutes=JANELA_RU_NOVA_VOLTA_MINUTOS):
             candidatas.append((saida, viagem))
     return max(candidatas, key=lambda item: item[0]) if candidatas else None
+
+
+def _indice_hora(hora):
+    for indice, viagem in enumerate(HORARIOS.get("principal", [])):
+        if viagem.get("hora") == hora:
+            return indice
+    return None
+
+
+def _ru_finalizou_volta(estado):
+    if (estado or {}).get("ponto_atual") != "ru":
+        return False
+    resultado = (estado or {}).get("resultado_rota") or {}
+    return resultado.get("ponto_atual_id") == "ru" and resultado.get("proximo") is None
+
+
+def _existe_saida_posterior_a_referencia(estado, agora):
+    referencia = (estado or {}).get("saida_referencia")
+    indice = _indice_hora(referencia)
+    if indice is None:
+        return False
+    for viagem in HORARIOS.get("principal", [])[indice + 1:]:
+        if _momento(viagem["hora"], agora) <= agora:
+            return True
+    return False
 
 
 def _ru_inicia_nova_volta(estado, agora):
@@ -116,13 +141,27 @@ def _ponto_compativel(ponto_id, bloco, agora):
     return agora >= max(inicio, liberacao)
 
 
+def _bloco_da_ultima_saida(agora):
+    viagens = [v for v in HORARIOS.get("principal", []) if _momento(v["hora"], agora) <= agora]
+    if not viagens:
+        return None
+    ultima = max(viagens, key=lambda v: _momento(v["hora"], agora))
+    minuto = int(ultima["hora"][:2]) * 60 + int(ultima["hora"][3:5])
+    for bloco in BLOCOS_PRINCIPAL:
+        ini = int(bloco["inicio"][:2]) * 60 + int(bloco["inicio"][3:5])
+        fim = int(bloco["ultima"][:2]) * 60 + int(bloco["ultima"][3:5])
+        if ini <= minuto <= fim:
+            return bloco
+    return None
+
+
 def confirmacao_inicia_novo_bloco(estado, ponto_id, agora):
     """Retorna True quando a confirmação deve abandonar o histórico anterior.
 
-    Além de transições entre blocos, RU pode iniciar uma nova volta dentro do
-    mesmo bloco quando uma nova saída oficial do RU ocorreu e o estado salvo
-    ainda pertence a uma referência anterior. Referências manuais têm prioridade
-    e não são substituídas automaticamente por uma confirmação no RU.
+    Referência manual dura até a volta realmente terminar no RU. Depois disso,
+    uma confirmação em ponto de percurso após existir uma saída oficial mais
+    nova libera a regra geral novamente. Isso também evita que o relógio, sozinho,
+    sobrescreva a referência manual antes do fechamento real da volta.
     """
     confirmado_em = _confirmado_em(estado)
     if confirmado_em is None or confirmado_em.date() != agora.date():
@@ -130,6 +169,16 @@ def confirmacao_inicia_novo_bloco(estado, ponto_id, agora):
 
     if ponto_id == "ru" and _ru_inicia_nova_volta(estado, agora):
         return True
+
+    if (
+        (estado or {}).get("saida_referencia_manual")
+        and _ru_finalizou_volta(estado)
+        and ponto_id != "ru"
+        and _existe_saida_posterior_a_referencia(estado, agora)
+    ):
+        bloco = _bloco_da_ultima_saida(agora)
+        if bloco is not None and _ponto_compativel(ponto_id, bloco, agora):
+            return True
 
     candidatos = [
         bloco
