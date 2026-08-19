@@ -11,7 +11,7 @@ from validacao_rota import validar_deslocamento
 FUSO = timezone(timedelta(hours=-3))
 
 
-def _estado_anterior(horario=None, referencia=None):
+def _estado_anterior(horario=None, referencia=None, manual=False):
     horario = horario or datetime(2026, 8, 17, 7, 20, tzinfo=FUSO)
     estado = {
         "ponto_anterior": "biblioteca",
@@ -31,6 +31,7 @@ def _estado_anterior(horario=None, referencia=None):
     }
     if referencia:
         estado["saida_referencia"] = referencia
+        estado["saida_referencia_manual"] = bool(manual)
     return estado
 
 
@@ -60,9 +61,6 @@ def test_ru_sem_nova_saida_nao_apaga_historico():
 
 
 def test_ru_atrasado_da_volta_anterior_pode_abrir_0725_por_referencia():
-    # A volta anterior chegou atrasada ao RU às 07:29, portanto o timestamp da
-    # confirmação já é posterior à saída oficial das 07:25. Mesmo assim, a
-    # referência 07:10 mostra que esse RU ainda pertencia à volta anterior.
     estado = _estado_anterior(
         horario=datetime(2026, 8, 18, 7, 29, tzinfo=FUSO),
         referencia="07:10",
@@ -108,3 +106,16 @@ def test_ru_nao_reabre_quando_estado_ja_e_da_volta_0725():
     agora = datetime(2026, 8, 18, 7, 32, tzinfo=FUSO)
 
     assert not confirmacao_inicia_novo_bloco(estado, "ru", agora)
+
+
+def test_ru_respeita_referencia_manual_1300_mesmo_apos_1325():
+    estado = _estado_anterior(
+        horario=datetime(2026, 8, 19, 13, 20, tzinfo=FUSO),
+        referencia="13:00",
+        manual=True,
+    )
+    agora = datetime(2026, 8, 19, 13, 27, tzinfo=FUSO)
+
+    assert not confirmacao_inicia_novo_bloco(estado, "ru", agora)
+    assert estado["saida_referencia"] == "13:00"
+    assert estado["saida_referencia_manual"] is True
