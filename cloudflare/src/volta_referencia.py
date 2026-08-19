@@ -4,6 +4,7 @@ from dados import BLOCOS_PRINCIPAL, HORARIOS
 from regras import estimar_chegada_portao_1
 
 JANELA_RU_REFERENCIA_MINUTOS = 10
+JANELA_RU_REFERENCIA_PICO_MINUTOS = 60
 
 
 def _momento(hora, referencia):
@@ -54,15 +55,28 @@ def ultima_saida_oficial(agora):
     return max(candidatas, key=lambda item: item[0])[1] if candidatas else None
 
 
+def _janela_referencia_ru(viagem):
+    previsao = estimar_chegada_portao_1(viagem["hora"])
+    if previsao.get("pico"):
+        return JANELA_RU_REFERENCIA_PICO_MINUTOS
+    return JANELA_RU_REFERENCIA_MINUTOS
+
+
 def saida_ru_recente(agora):
-    """Usada apenas para associar uma referência inicial, nunca para trocar volta."""
+    """Associa RU à última saída plausível sem trocar a volta só pelo relógio.
+
+    Em horário de pico a janela é maior porque a volta pode retornar ao RU muito
+    depois do previsto. Isso evita que uma chegada atrasada da última volta do
+    bloco seja interpretada como pertencente ao bloco/saída seguinte.
+    """
     candidatas = []
     for viagem in HORARIOS.get("principal", []):
         if not _origem_ru(viagem):
             continue
         momento = _momento(viagem["hora"], agora)
         atraso = agora - momento
-        if timedelta(0) <= atraso <= timedelta(minutes=JANELA_RU_REFERENCIA_MINUTOS):
+        janela = _janela_referencia_ru(viagem)
+        if timedelta(0) <= atraso <= timedelta(minutes=janela):
             candidatas.append((momento, viagem))
     return max(candidatas, key=lambda item: item[0])[1] if candidatas else None
 
