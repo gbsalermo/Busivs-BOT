@@ -17,7 +17,10 @@ MINIMOS_ESPECIAIS = {
     ("ponto_externo_2", "ru"): 10,
     ("ponto_externo_1", "ru"): 12,
     ("portao_2", "ru"): 14,
-    ("biblioteca", "ru"): 4,
+
+    # Biblioteca -> RU é um trecho curto do retorno. A trava serve só para
+    # impedir confirmações praticamente simultâneas, não para impor tempo médio.
+    ("biblioteca", "ru"): 1,
 
     # Saída da Garagem: RU é uma primeira confirmação totalmente plausível.
     # Os demais pontos precisam de um tempo mínimo para evitar saltos impossíveis.
