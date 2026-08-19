@@ -16,6 +16,22 @@ def test_ru_0730_fixa_referencia_0725():
     assert viagem["hora"] == "07:25"
 
 
+def test_ru_1254_mantem_referencia_1220_em_pico():
+    agora = datetime(2026, 8, 19, 12, 54, tzinfo=FUSO)
+    viagem = saida_ru_recente(agora)
+
+    assert viagem is not None
+    assert viagem["hora"] == "12:20"
+
+
+def test_ru_1330_prefere_nova_saida_1325():
+    agora = datetime(2026, 8, 19, 13, 30, tzinfo=FUSO)
+    viagem = saida_ru_recente(agora)
+
+    assert viagem is not None
+    assert viagem["hora"] == "13:25"
+
+
 def test_admin_retorna_de_0740_para_0725_sem_apagar_estado():
     agora = datetime(2026, 8, 17, 7, 47, tzinfo=FUSO)
     estado = {
