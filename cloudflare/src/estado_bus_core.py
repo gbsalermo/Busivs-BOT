@@ -32,7 +32,6 @@ def _bloco_registro_ativo(estado, agora):
     if not ativos:
         return None
 
-    # Em sobreposição de pico, o bloco mais novo tem prioridade.
     return max(ativos, key=lambda bloco: bloco["inicio_dt"])
 
 
@@ -209,14 +208,17 @@ class BusState(DurableObject):
         return {"ativo": True, "estado": estado, "texto": texto}
 
     async def registrar_micro(self, ponto_id, telegram_id=None):
+        """Registra o micro sem trava temporal ou pré-bloqueio rígido de sequência.
+
+        O fluxo normal de registrar_passagem continua responsável por interpretar
+        o ponto e o histórico da rota. Isso permite que uma confirmação real de
+        uma nova volta não fique presa ao estado anterior do micro.
+        """
         await self._expirar_micro_se_necessario()
         if not await self.ctx.storage.get("micro_ativo"):
             return {"aceito": False, "motivo": "micro_inativo"}
         estado = await self._carregar_chave_estado("estado_micro")
         agora = agora_local()
-        bloqueio = validar_deslocamento(estado, ponto_id, agora, permitir_ciclo=False)
-        if bloqueio is not None:
-            return bloqueio
         estado, resultado = registrar_passagem(estado, ponto_id, telegram_id, agora=agora)
         estado = ajustar_primeiro_ponto(estado, resultado, agora)
         await self._salvar_chave_estado("estado_micro", estado)
@@ -270,16 +272,11 @@ class BusState(DurableObject):
         estado = reiniciar_se_novo_ciclo_noturno(estado, agora)
         estado = expirar_confirmacao_volta_anterior(estado, agora)
 
-        # Barreira absoluta: fora de um bloco operacional ativo não existe
-        # localização colaborativa para registrar. Admin segue a mesma regra.
         if _bloco_registro_ativo(estado, agora) is None:
             if estado != estado_original:
                 await self._salvar(estado)
             return {"aceito": False, "motivo": "fora_circulacao"}
 
-        # Se um bloco novo já começou e o ponto informado é compatível com ele,
-        # o estado anterior é abandonado por completo. Assim histórico, sentido e
-        # próximo ponto do bloco antigo não contaminam a nova operação.
         if confirmacao_inicia_novo_bloco(estado, ponto_id, agora):
             estado = estado_vazio()
 
