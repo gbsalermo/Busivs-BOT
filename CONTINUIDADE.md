@@ -2,703 +2,304 @@
 
 Documento técnico para retomar o projeto rapidamente sem depender do histórico da conversa.
 
-> **Estado em 12/08/2026:** BUSIVS BOT funcional em produção no Cloudflare Workers, integrado ao Telegram por webhook, com localização colaborativa do Circular Principal, suporte ao Micro-ônibus de reforço, avisos operacionais e estado compartilhado em Durable Object.
+> **Atualizado em 19/08/2026.** Produção em Cloudflare Workers + Telegram. A lógica atual privilegia confirmações reais: horários identificam as voltas, mas pontos conduzem o estado dentro do bloco. Marcações temporalmente suspeitas não são bloqueadas e ficam separadas da última localização confiável até nova evidência.
 
 ---
 
-# 1. Objetivo do projeto
+# 1. Princípios atuais
 
-O BUSIVS BOT auxilia estudantes da **UFRB — Campus Cruz das Almas** a acompanhar o transporte interno pelo Telegram.
+O BUSIVS não possui GPS. Combina horários, rota, confirmações colaborativas, estimativas e avisos.
 
-O sistema combina:
+Ordem de autoridade:
 
-- horários oficiais;
-- regras da rota;
-- confirmações colaborativas de passagem;
-- estimativas de posição/sentido;
-- avisos operacionais;
-- acompanhamento separado do Circular Principal e do Micro-ônibus de reforço.
+```text
+confirmação confiável > inferência pelo trajeto > horário
+```
 
-O BUSIVS não usa GPS. Uma confirmação real de usuário e uma estimativa baseada no horário são tratadas como coisas diferentes.
+Regras fundamentais:
 
-> **Princípio central:** manter o serviço simples, útil e gratuito ou próximo de custo zero.
+1. horário é referência da volta, não prova de posição;
+2. dentro de um bloco, o relógio sozinho não encerra/inicia voltas;
+3. informação suspeita deve ser sinalizada, não bloqueada;
+4. indicação suspeita não pode contaminar o estado confiável;
+5. janelas operacionais continuam fortes na abertura/fim dos blocos;
+6. Principal e Micro possuem estados independentes.
 
 ---
 
-# 2. Branches atuais
+# 2. Produção
 
 ```text
-main
-→ produção Cloudflare / Telegram Webhook
-
-alpha
-→ desenvolvimento e testes locais por polling no Telegram
-
-local
-→ versão original em polling preservada como referência/fallback
+main  -> produção / deploy automático Cloudflare
+alpha -> testes locais por polling
+local -> referência/fallback histórico
 ```
 
-A `alpha` **não deve ser conectada à Cloudflare**.
+Entrypoint atual: `cloudflare/src/entry_antiteleporte.py`.
 
-Fluxo normal:
+O projeto possui camadas `entry_*`. Sempre conferir a cadeia de herança/entrypoint antes de editar lógica antiga.
 
-```text
-alteração funcional
-→ testar na alpha
-→ validar no Telegram local
-→ portar/adaptar para main
-→ deploy Cloudflare
-```
+Estado compartilhado: Durable Object / SQLite. Secrets: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `ADMIN_TELEGRAM_ID`. Nunca versionar valores reais.
 
 ---
 
-# 3. Arquitetura de produção
+# 3. Rota conceitual
+
+Sentido RUA:
 
 ```text
-Telegram
-   ↓ webhook HTTPS
-Cloudflare Python Worker
-   ↓
-cloudflare/src/entry.py
-   ↓
-regras do BUSIVS
-   ↕
-BusState — Durable Object / SQLite
-   ↓
-Telegram Bot API
+RU -> Fitotecnia -> Solos -> Pav I -> Biblioteca -> Pav II
+-> Pav Engenharia (opcional) -> Portão 2 -> Alex -> Canaã -> Portão 1
 ```
 
-Endpoint público de saúde:
+Sentido RU:
 
 ```text
-GET /health
+Portão 1 -> Biblioteca -> Torre/COTEC (opcional) -> RU
 ```
 
-Worker de produção:
-
-```text
-busivs-bot
-```
-
-URL usada em produção durante a implantação:
-
-```text
-https://busivs-bot.enzogabrielskull.workers.dev
-```
+Biblioteca é ambígua porque aparece na ida e no retorno. Nunca decidir sentido apenas pelo ID `biblioteca`.
 
 ---
 
-# 4. Estrutura importante
+# 4. Horários = referência da volta
 
-```text
-cloudflare/
-├── wrangler.jsonc
-├── pyproject.toml
-└── src/
-    ├── entry.py
-    ├── estado_bus.py
-    ├── regras.py
-    ├── dados.py
-    ├── telegram_api.py
-    ├── validacao_rota.py
-    ├── avisos_blocos.py
-    ├── biblioteca_contexto.py
-    ├── ciclo_noturno.py
-    ├── expiracao_volta.py
-    ├── horarios_pico.py
-    └── micro.py
+Cada volta continua conectada ao horário oficial correspondente, mas o horário não troca a volta sozinho.
 
-local_test/
-├── bot_local.py
-├── estado_local.py
-├── micro.py
-└── estado_teste.json   # local / não versionar
-```
+Exemplo: referência 11:30; se chegar 12:00 sem evidência de RU/nova volta, continua sendo a volta de 11:30.
 
-Responsabilidades principais:
+Isso é especialmente importante em pico/atrasos.
 
-```text
-entry.py
-→ webhook, menus, callbacks, ajuda, avisos e integração Telegram
-
-estado_bus.py
-→ Durable Object, estado do principal, estado do micro e avisos
-
-regras.py
-→ regras centrais de localização e passagem
-
-dados.py
-→ horários, pontos e rota
-
-validacao_rota.py
-→ proteção contra deslocamentos improváveis
-
-avisos_blocos.py
-→ expiração dos avisos conforme o bloco operacional
-
-micro.py
-→ referências oficiais e situação de horário do micro
-```
+Horário continua forte para abertura do bloco/saída Garagem, fim operacional do bloco, lacunas entre blocos e informação de próximas referências. O encerramento do bloco continua impedindo voltas fantasmas.
 
 ---
 
-# 5. Persistência
+# 5. RU = fim da volta, não começo
 
-Não existe banco relacional tradicional.
+Confirmação **confiável** no RU significa chegada ao RU / fim da volta.
 
-```text
-Configuração permanente
-→ código / estruturas de horários e rota
+Se houver outra volta no bloco, Fitotecnia é apenas o **primeiro ponto esperado**. Não é obrigatório confirmar Fitotecnia para começar a próxima volta.
 
-Estado operacional compartilhado
-→ Durable Object
+Se ninguém marcar Fitotecnia e aparecer Solos, Pav I, Biblioteca, Pav II etc., esse ponto pode evidenciar que a nova volta já começou.
 
-Histórico permanente de usuários/localização
-→ NÃO existe
-```
-
-O Durable Object mantém somente o necessário para a operação recente.
-
-Estados independentes:
-
-```text
-estado
-→ Circular Principal
-
-estado_micro
-→ Micro-ônibus de reforço
-```
+Na última volta do bloco, manter o contexto de retorno/Garagem e os possíveis pontos ainda atendidos antes da Garagem.
 
 ---
 
-# 6. Funcionalidades atuais
+# 6. Nova volta sem RU explícito
 
-Menu do usuário:
-
-```text
-🚌 Onde está o ônibus?
-📍 Informar ponto atual
-⏰ Próximos horários
-📋 Listar horários
-🚐 Confirmar que micro está rodando
-❓ Ajuda
-```
-
-Quando o micro está ativo:
+Usuários podem deixar de confirmar o RU. O sistema pode reconhecer reinício pelos pontos.
 
 ```text
-🚐 Micro em operação ✅
+última posição confiável avançada: P2/Alex/Canaã/P1
+mais tarde: Fitotecnia/Solos/Pav I
+=> forte evidência de volta anterior concluída + nova volta iniciada
+=> associar à próxima referência oficial compatível
 ```
 
-O botão passa a ser apenas informativo e não renova a ativação.
-
-Para o administrador também aparece:
-
-```text
-📢 Avisos
-```
+Biblioteca depois de P1 continua ambígua: pode ser retorno ou, após uma volta inteira silenciosa, uma nova ida. Nova evidência deve resolver.
 
 ---
 
-# 7. Circular Principal
+# 7. Proteção contra marcações ruins — NÃO BLOQUEAR
 
-Funcionalidades implementadas:
+Foram abandonadas as antigas travas gerais de deslocamento (tempos fixos, 1 min/ponto, 30 s/etapa etc.) porque causavam falsos bloqueios.
 
-- horários oficiais;
-- listagem por período;
-- próximas voltas;
-- rota completa;
-- localização colaborativa;
-- sentido estimado;
-- próximo ponto esperado;
-- espera na origem;
-- pré-saída da Garagem;
-- tratamento especial dos blocos noturnos;
-- expiração da confirmação antiga após nova saída oficial + tolerância;
-- contexto de viagens próximas em horário de pico;
-- proteção contra duplicidade;
-- proteção contra saltos fisicamente improváveis;
-- interpretação contextual da Biblioteca, que aparece duas vezes na rota;
-- avisos operacionais com impacto contextual nas respostas.
+Hoje só alguns saltos característicos geram suspeita:
 
-Horário oficial é referência e não substitui uma confirmação real recente.
+```text
+Fitotecnia -> Biblioteca : < 1 min
+Biblioteca -> Portão 1   : < 2 min
+Portão 1 -> Biblioteca   : < 1 min
+Portão 1 -> RU           : < 2 min
+```
+
+Fluxo: salto rápido -> perguntar `Você tem certeza?` -> cancelar mantém estado anterior; confirmar guarda indicação como **não confiável**.
+
+A indicação não confiável fica ativa até surgir nova evidência. Não expira automaticamente em poucos minutos.
 
 ---
 
-# 8. Rota principal
+# 8. Estado confiável x indicação suspeita
 
-```text
-RU / Residências
-↓
-Fitotecnia
-↓
-Prédio de Solos / NEAS / Eng. Florestal
-↓
-Pavilhão de Aulas I
-↓
-Biblioteca
-↓
-Pavilhão de Aulas II
-↓
-Pavilhão de Engenharia (opcional)
-↓
-Portão 2 / Tabela
-↓
-Ponto Externo I / Alex
-↓
-Ponto Externo II / Canãa
-↓
-Portão 1
-↓
-Biblioteca
-↓
-Torre / COTEC (opcional)
-↓
-RU / Residências
-```
+Uma indicação suspeita NÃO pode encerrar volta, iniciar volta, alterar definitivamente sentido, substituir a última localização confiável, disparar retorno/Garagem ou servir de base obrigatória para o próximo registro.
 
-A Biblioteca aparece duas vezes. Não inferir sentido apenas pelo ID/nome do ponto.
+`Onde está o ônibus?` deve continuar mostrando a última localização confiável como referência e avisar que existe uma indicação ainda não confirmada.
+
+A próxima evidência resolve a situação usando a última confirmação confiável anterior.
 
 ---
 
-# 9. Micro-ônibus de reforço
-
-O Micro é um **reforço**, não substitui o Circular Principal.
-
-Ele pode ou não operar em determinado dia. Por isso o estado precisa ser confirmado colaborativamente.
-
-Ativação:
+# 9. Caso crítico: P1 -> RU suspeito
 
 ```text
-🚐 Confirmar que micro está rodando
-→ "Você viu o micro?"
-→ ✅ Sim, está rodando
+P1 confiável -> RU rápido -> usuário confirma certeza
 ```
 
-Qualquer usuário pode confirmar que viu o micro operando.
-
-Depois da ativação:
-
-- botão vira `🚐 Micro em operação ✅`;
-- Principal e Micro passam a ter estados separados;
-- `Informar ponto atual` pergunta qual veículo foi visto;
-- `Onde está?` mostra os dois veículos separados;
-- `Próximos horários` mostra 2 referências do principal + micro;
-- o horário da ativação é registrado e exibido ao usuário.
-
-O administrador pode desativar o micro pelo painel de avisos.
-
-## Horários oficiais cadastrados do micro
-
-Manhã:
+Resultado correto:
 
 ```text
-07:25 — Garagem → fim 07:40
-07:40 — RU/Residências → fim 07:55
-07:55 — RU/Residências → fim 08:20
+P1 continua localização confiável
+RU fica apenas como indicação não confiável
+volta NÃO termina
 ```
 
-Meio-dia:
+Se depois aparecer Biblioteca, RU suspeito é desconsiderado, Biblioteca vira o foco e continua o retorno da mesma volta.
+
+Se depois aparecer Fitotecnia/Solos/Pav I em contexto compatível, existe evidência de que a volta anterior terminou e outra começou; pode avançar para a próxima referência.
+
+Objetivo: um voto ruim nunca deve encerrar ou impedir a volta verdadeira.
+
+---
+
+# 10. Evidência posterior vence suspeita
+
+Exemplo: Biblioteca confiável -> P1 em 10 s (suspeito) -> depois Canaã plausível a partir da Biblioteca. Canaã deve prevalecer.
+
+Regra:
 
 ```text
-11:30 — Garagem → fim 11:55
-11:55 — RU/Residências → fim 12:20
-12:20 — RU/Residências → fim 12:45
+nova confirmação plausível > indicação suspeita pendente
 ```
 
-Não existem mais horários artificiais de teste no código de produção.
+O estado deve ser reconstruído a partir da última confirmação confiável, não da suspeita.
 
-## Expiração do micro
+---
 
-Se for ativado durante a faixa oficial entre 07:25 e 13:00:
+# 11. Fim de bloco e última volta
+
+O relógio não troca voltas intermediárias, mas continua fechando o contexto operacional no fim do bloco.
+
+Na última volta, informar objetivamente: última volta do bloco, retorno/Garagem quando aplicável, pontos ainda possíveis no retorno e próxima saída no bloco seguinte.
+
+Chegada ao RU na última volta não necessariamente significa Garagem imediata; o circular ainda pode passar por Fitotecnia/Solos no percurso de retorno conforme a operação modelada.
+
+---
+
+# 12. Referência especial 20:00
+
+Existe volta de 20:00 baseada na rotina do ano anterior: pode não ocorrer; P1 estimado ~20:10–20:15; fim ~20:25; pode passar antes. Manter aviso de que é previsão.
+
+---
+
+# 13. Micro
+
+Micro é reforço e possui estado separado. Pode operar nos horários cadastrados ou esporadicamente.
+
+A antiga pré-trava rígida de sequência/tempo do Micro foi removida. Não reintroduzir trava temporal geral sem teste real.
+
+A ativação esporádica possui a regra de expiração operacional atualmente definida em código (30 min nos casos aplicáveis). Não exibir frases internas como `Operação confirmada há X min` na localização do usuário.
+
+Admin possui `🛠️ Ajuste manual` para escolher referência, corrigir ponto/sentido, corrigir Micro e Garagem/encerrar bloco.
+
+---
+
+# 14. Pedidos colaborativos de confirmação
+
+Quando há silêncio após consultas, existe fluxo para pedir evidência aos usuários recentes.
+
+- pelo menos 10 candidatos por disparo;
+- normal: primeiro pedido após ~5 min sem nova confirmação;
+- pico: ~10 min;
+- segundo disparo aproximadamente 15/20 min;
+- máximo 2 avisos por volta;
+- nova confirmação zera/cancela o fluxo;
+- candidatos podem entrar até ~1 min antes do envio;
+- autor da última confirmação pode receber pergunta intermediária ~7/8 min quando aplicável;
+- fluxos não se sobrepõem;
+- resposta direta ao aviso disponível por 3 min.
+
+Objetivo: pedir confirmação quando falta informação, não exigir confirmação a cada dois pontos.
+
+---
+
+# 15. Interface
+
+Evitar expor regras internas, limites de validade e detalhes do algoritmo. Mostrar conclusão operacional simples.
+
+Controles administrativos ficam em `Ajuste manual`, não em `Onde está o ônibus?`.
+
+---
+
+# 16. Arquivos sensíveis
 
 ```text
-expira automaticamente às 13:00
-```
-
-A última volta termina às 12:45 e existe uma carência até 13:00.
-
-Se for ativado fora da escala oficial, por exemplo em operação extraordinária:
-
-```text
-não recebe expiração automática às 13:00
-→ permanece ativo até desativação administrativa
+entry_antiteleporte.py -> suspeitas, confirmação/cancelamento, estado confiável x indicação fraca, RU
+expiracao_volta.py     -> horários como referência e encerramento de bloco
+estado_bus_core.py     -> persistência Principal/Micro
+regras*.py             -> localização/sentido/mensagens
+dados.py               -> horários/pontos
+entry_admin_hub.py     -> interface / Ajuste manual
 ```
 
 ---
 
-# 10. Avisos operacionais
-
-Avisos pré-definidos atuais:
+# 17. Testes prioritários
 
 ```text
-🚪 Portão 1 fechado
-🚪 Portão 2 fechado
-⚠️ Circular operando com atraso
-🛠️ Circular temporariamente fora de operação
-🛠️ Circular quebrou em meio ao trajeto
-🌧️ Tempo chuvoso, circular pode demorar mais do que o esperado
-🧍‍♂️🧍‍♀️ Superlotação do circular
-🚐 Micro está rodando!
-🚌 Rota alterada temporariamente
-📅 Horários especiais hoje
-```
-
-Também existe aviso personalizado.
-
-O aviso:
-
-```text
-🚐 Micro está rodando!
-```
-
-é **somente informativo**. Ele não ativa nem renova o estado operacional do micro.
-
-Avisos ativos aparecem automaticamente para usuários comuns.
-
-Somente o administrador vê o botão `📢 Avisos` e pode:
-
-- ativar aviso pré-definido;
-- criar aviso personalizado;
-- remover aviso;
-- limpar avisos;
-- desativar o micro quando ativo.
-
-Limite atual:
-
-```text
-3 avisos ativos
-```
-
-Os avisos expiram automaticamente conforme o bloco operacional, mas podem ser publicados novamente caso a situação continue.
-
----
-
-# 11. Administração
-
-A identificação administrativa é feita por:
-
-```text
-ADMIN_TELEGRAM_ID
-```
-
-O valor deve existir no ambiente do Worker e não deve ser escrito diretamente no código.
-
-O código compara o `from.id` enviado pelo Telegram com `ADMIN_TELEGRAM_ID`.
-
-Quando reconhecido como administrador, o menu ganha:
-
-```text
-📢 Avisos
-```
-
-Contato mostrado na Ajuda:
-
-```text
-75 99978-0174
+1. P1 confiável -> RU rápido -> confirmar
+   P1 continua confiável; RU só incerto.
+2. P1 -> RU suspeito -> Biblioteca
+   RU descartado; Biblioteca assume; volta ainda não acabou.
+3. P1 -> RU suspeito -> Fitotecnia/Solos/Pav I
+   reconhecer nova volta quando compatível.
+4. Biblioteca -> P1 <2 min
+   perguntar certeza; nunca bloquear definitivamente.
+5. Biblioteca -> P1 suspeito -> Canaã plausível
+   Canaã prevalece.
+6. volta 11:30 atravessa 11:55/12:00 sem nova evidência
+   continua referência 11:30.
+7. RU confiável com outra volta no bloco
+   fim da volta; Fitotecnia apenas primeiro esperado.
+8. RU -> primeira evidência nova em Solos/Pav I/P2
+   aceitar nova volta sem exigir Fitotecnia.
+9. última volta do bloco
+   retorno/Garagem + próxima saída correta.
+10. Micro
+    sem bloqueio temporal geral antigo.
 ```
 
 ---
 
-# 12. Secrets de produção
+# 18. Histórico da reformulação de 19/08/2026
 
-Variáveis/secrets necessários:
+As tentativas anteriores de anti-teletransporte passaram por mínimos fixos, mínimos por ponto, 30 segundos por etapa e segunda tentativa. Causaram falsos bloqueios e foram abandonadas.
 
-```text
-TELEGRAM_BOT_TOKEN
-TELEGRAM_WEBHOOK_SECRET
-ADMIN_TELEGRAM_ID
-```
+Decisão atual: **não bloquear**. Poucos saltos característicos geram hipótese não confiável e evidência posterior resolve.
 
-O `wrangler.jsonc` utiliza:
-
-```json
-"keep_vars": true
-```
-
-para evitar perder variáveis existentes em deploys normais.
-
-Nunca versionar valores reais no GitHub.
-
-## Configurar ADMIN_TELEGRAM_ID pelo Git Bash
-
-Entre na pasta `cloudflare`:
-
-```bash
-cd /d/Projetos/Python/BUSIVIS/Busivs-BOT/cloudflare
-```
-
-Opcional: conferir conta e secrets já cadastrados:
-
-```bash
-npx wrangler whoami
-npx wrangler secret list --name busivs-bot
-```
-
-Ler o Telegram ID sem exibir na tela:
-
-```bash
-read -s ADMIN_TELEGRAM_ID
-```
-
-Cole o ID numérico e pressione Enter.
-
-Enviar para a Cloudflare:
-
-```bash
-printf '%s' "$ADMIN_TELEGRAM_ID" | npx wrangler secret put ADMIN_TELEGRAM_ID --name busivs-bot
-```
-
-Depois que o Wrangler terminar, em **outro comando**:
-
-```bash
-unset ADMIN_TELEGRAM_ID
-```
-
-Confirmar:
-
-```bash
-npx wrangler secret list --name busivs-bot
-```
-
-Esperado:
+Commits importantes:
 
 ```text
-TELEGRAM_BOT_TOKEN
-TELEGRAM_WEBHOOK_SECRET
-ADMIN_TELEGRAM_ID
-```
-
-### Erro já ocorrido
-
-Não executar:
-
-```bash
-... --name busivs-bot unset ADMIN_TELEGRAM_ID
-```
-
-Isso faz o Wrangler interpretar `unset` como argumento e gera:
-
-```text
-Unknown arguments: unset, ADMIN_TELEGRAM_ID
-```
-
-`unset ADMIN_TELEGRAM_ID` deve ser sempre um comando separado.
-
----
-
-# 13. Rodar localmente pela alpha
-
-A `alpha` usa Telegram por **polling**, sem Cloudflare.
-
-Na raiz do repositório:
-
-```bash
-git switch alpha
-git pull origin alpha
-```
-
-Configurar `.env` local, não versionado:
-
-```env
-TELEGRAM_BOT_TOKEN=token_do_bot
-ADMIN_TELEGRAM_ID=seu_id_numerico
-```
-
-Executar:
-
-```bash
-python local_test/bot_local.py
-```
-
-Saída esperada:
-
-```text
-BUSIVS ALPHA LOCAL iniciado por polling.
-```
-
-Parar:
-
-```text
-Ctrl+C
-```
-
-Estado local:
-
-```text
-local_test/estado_teste.json
-```
-
-Ele pode manter micro/avisos ativos entre reinicializações. Para um teste realmente limpo, verificar/remover o arquivo ou limpar o estado conscientemente.
-
-Arquivos locais que não devem entrar em commits:
-
-```text
-.env
-__pycache__/
-*.pyc
-cloudflare/.wrangler/
-local_test/estado_teste.json
+511e6aa -> início da reformulação
+3090718 -> confirmação suspeita sem bloqueio
+2618931 -> horários intermediários deixam de expirar a volta
+0f9bedd -> indicação suspeita separada do estado confiável, especialmente RU
 ```
 
 ---
 
-# 14. Deploy de produção
+# 19. Regras que não devem ser quebradas
 
-`main` está conectada à Cloudflare por Git.
-
-Fluxo normal:
-
-```text
-commit/push na main
-→ Cloudflare detecta
-→ build/deploy
-→ Worker atualizado
-```
-
-Um commit vazio pode ser usado para disparar novo deploy quando necessário:
-
-```bash
-git switch main
-git pull
-git commit --allow-empty -m "ci: redeploy cloudflare"
-git push origin main
-```
-
-Não usar isso como primeira solução para bugs; serve apenas para forçar um novo deploy quando o código/configuração já está corretos.
+1. Confirmação confiável > inferência > horário.
+2. Horário identifica a volta, mas não a troca sozinho dentro do bloco.
+3. RU confiável encerra volta; não inicia automaticamente outra.
+4. Fitotecnia é esperado, não obrigatório.
+5. Outro ponto plausível pode provar nova volta.
+6. Biblioteca sempre exige contexto.
+7. Suspeita nunca bloqueia confirmação correta posterior.
+8. Suspeita nunca encerra/inicia volta sozinha.
+9. Estado confiável e suspeita ficam separados.
+10. Não reintroduzir trava geral de tempo.
+11. Horário continua forte na abertura/fim de bloco.
+12. Principal e Micro permanecem independentes.
+13. Usuário não precisa conhecer regras internas.
+14. Última volta deve deixar claro que não há saída imediatamente em seguida.
+15. Não versionar secrets/IDs administrativos.
 
 ---
 
-# 15. Problemas importantes já resolvidos
+# 20. Próximo foco
 
-## Durable Object provisionado e ausente dos exports
+Observar a lógica nova em voltas reais. O principal risco agora é resolver ambiguidades entre retorno e nova volta quando faltam confirmações intermediárias.
 
-Erro:
-
-```text
-provisioned_class_missing_from_config
-```
-
-A classe `BusState` já possuía namespace provisionado. A configuração atual mantém o Durable Object corretamente declarado com armazenamento SQLite.
-
-Não remover/renomear essa declaração casualmente.
-
-## Secrets perdidos em deploy
-
-Os secrets foram cadastrados diretamente com Wrangler. `keep_vars` permanece ativo.
-
-## PyWrangler/Pyodide no Windows
-
-O ambiente local de Worker apresentou falhas de Pyodide. Por isso o teste funcional da `alpha` passou a usar polling direto do Telegram, que é mais simples e confiável para o desenvolvimento atual.
-
-## Saltos impossíveis entre pontos
-
-Existe validação de plausibilidade temporal para impedir sequências fisicamente absurdas sem transformar o sistema em GPS.
-
-## Biblioteca ambígua
-
-A primeira confirmação na Biblioteca usa contexto temporal da volta quando não há histórico suficiente; com histórico, a sequência da rota tem prioridade.
-
----
-
-# 16. Regras que não devem ser quebradas
-
-1. Estimativa nunca deve ser apresentada como confirmação.
-2. Horários oficiais são referência, não prova da posição real.
-3. Confirmação real recente válida pode superar ambiguidade de horário.
-4. Biblioteca precisa de contexto porque aparece duas vezes.
-5. O estado do Principal e do Micro deve permanecer separado.
-6. Aviso `Micro está rodando` não deve ativar o modo micro.
-7. Usuário comum pode confirmar o micro, mas somente admin pode desativá-lo manualmente.
-8. Não criar histórico permanente de usuários/localização sem necessidade concreta.
-9. Não versionar tokens, IDs administrativos ou secrets.
-10. Preferir mudanças pequenas e testáveis na `alpha` antes da produção.
-
----
-
-# 17. Pós-protótipo / melhorias futuras
-
-O núcleo funcional está fechado. Priorizar observação do uso real e melhorias justificadas.
-
-Já documentado para pós-protótipo:
-
-- supressão de spam de confirmações repetidas;
-- rate limit temporário por usuário/ponto;
-- detecção de rajadas anormais;
-- proteção contra trotes/invasões;
-- consolidação de muitas confirmações idênticas;
-- tratamento melhor de confirmações conflitantes;
-- bloqueios temporários de fontes abusivas;
-- NFC nos pontos;
-- verificação por e-mail institucional, se passar a ser necessária;
-- modo férias/horários especiais mais estruturado;
-- refinamento de estimativas com dados reais de uso.
-
-Não adicionar infraestrutura preventiva sem problema concreto.
-
----
-
-# 18. Fase atual
-
-A lógica principal foi validada na `alpha` e portada para `main`.
-
-Estado atual:
-
-```text
-Circular Principal                  ✅
-Micro-ônibus de reforço             ✅
-Localização colaborativa            ✅
-Avisos operacionais                 ✅
-Painel administrativo               ✅
-Ajuda e contato                     ✅
-Cloudflare Worker                   ✅ produção
-Telegram Webhook                    ✅ produção
-Durable Object                      ✅ produção
-Execução local pela alpha           ✅
-```
-
-Próximo foco imediato:
-
-```text
-1. revisar textos do bot
-2. preparar card de lançamento
-3. preparar texto oficial de divulgação
-4. observar uso real
-5. corrigir somente problemas que aparecerem
-```
-
----
-
-# 19. Resumo de retomada rápida
-
-```text
-REPOSITÓRIO
-https://github.com/gbsalermo/Busivs-BOT
-
-PRODUÇÃO
-branch: main
-Cloudflare Worker Python
-Telegram Webhook
-Durable Object BusState
-Circular Principal + Micro + Avisos
-
-TESTE LOCAL
-branch: alpha
-python local_test/bot_local.py
-Telegram polling
-estado local em local_test/estado_teste.json
-
-FALLBACK HISTÓRICO
-branch: local
-versão original em polling
-
-ADMIN
-ADMIN_TELEGRAM_ID no ambiente Cloudflare
-📢 Avisos só aparece para o administrador
-
-FASE ATUAL
-núcleo funcional fechado
-foco em textos, lançamento e observação do uso real
-```
-
-> **O BUSIVS já é um serviço funcional. A prioridade agora é comunicar bem, observar o uso real e evoluir apenas onde houver necessidade concreta.**
+Quando surgir caso inesperado, registrar a sequência real de **horários + pontos** e ajustar a inferência sem transformar horário em GPS nem criar bloqueios gerais.
