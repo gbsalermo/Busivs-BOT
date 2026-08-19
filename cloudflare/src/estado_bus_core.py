@@ -12,27 +12,20 @@ from horarios_pico import montar_resumo_horarios
 from micro import janela_operacao_micro_atual, micro_pode_operar_agora
 from regras import agora_local, estado_vazio, registrar_passagem
 from transicao_bloco import confirmacao_inicia_novo_bloco
-from validacao_rota import validar_deslocamento
 
 MAX_AVISOS_ATIVOS = 3
 MAX_TAMANHO_AVISO = 280
 
 
 def _bloco_registro_ativo(estado, agora):
-    """Retorna o bloco em que confirmações colaborativas podem ser aceitas."""
     if agora.weekday() >= 5:
         return None
-
     ativos = []
     for bloco in blocos_no_dia(agora):
         fim = fim_efetivo_bloco(bloco, estado)
         if bloco["inicio_dt"] <= agora < fim:
             ativos.append(bloco)
-
-    if not ativos:
-        return None
-
-    return max(ativos, key=lambda bloco: bloco["inicio_dt"])
+    return max(ativos, key=lambda bloco: bloco["inicio_dt"]) if ativos else None
 
 
 class BusState(DurableObject):
@@ -54,7 +47,6 @@ class BusState(DurableObject):
     async def _salvar(self, estado):
         await self._salvar_chave_estado("estado", estado)
 
-    # -------------------- AVISOS --------------------
     async def _carregar_avisos(self):
         await self._expirar_avisos_se_necessario()
         bruto = await self.ctx.storage.get("avisos")
@@ -81,8 +73,7 @@ class BusState(DurableObject):
         try:
             limite = datetime.fromisoformat(str(expira_em))
         except Exception:
-            await self._limpar_avisos_interno()
-            return
+            await self._limpar_avisos_interno(); return
         if agora_local() >= limite:
             await self._limpar_avisos_interno()
 
@@ -91,212 +82,104 @@ class BusState(DurableObject):
         return {"avisos": avisos, "quantidade": len(avisos), "limite": MAX_AVISOS_ATIVOS, "expiram_em": await self.ctx.storage.get("avisos_expiram_em")}
 
     async def adicionar_aviso(self, texto):
-        texto = (texto or "").strip()
-        avisos = await self._carregar_avisos()
-        if not texto:
-            return {"ok": False, "motivo": "aviso_vazio", "avisos": avisos}
-        if len(texto) > MAX_TAMANHO_AVISO:
-            return {"ok": False, "motivo": "aviso_muito_longo", "avisos": avisos}
-        if texto in avisos:
-            return {"ok": True, "duplicado": True, "avisos": avisos}
-        if len(avisos) >= MAX_AVISOS_ATIVOS:
-            return {"ok": False, "motivo": "limite_atingido", "avisos": avisos}
-        avisos.append(texto)
-        await self._salvar_avisos(avisos)
+        texto = (texto or "").strip(); avisos = await self._carregar_avisos()
+        if not texto: return {"ok": False, "motivo": "aviso_vazio", "avisos": avisos}
+        if len(texto) > MAX_TAMANHO_AVISO: return {"ok": False, "motivo": "aviso_muito_longo", "avisos": avisos}
+        if texto in avisos: return {"ok": True, "duplicado": True, "avisos": avisos}
+        if len(avisos) >= MAX_AVISOS_ATIVOS: return {"ok": False, "motivo": "limite_atingido", "avisos": avisos}
+        avisos.append(texto); await self._salvar_avisos(avisos)
         expira_em = await self.ctx.storage.get("avisos_expiram_em")
         if not expira_em:
-            expira_em = expiracao_bloco_aviso(agora_local()).isoformat()
-            await self.ctx.storage.put("avisos_expiram_em", expira_em)
+            expira_em = expiracao_bloco_aviso(agora_local()).isoformat(); await self.ctx.storage.put("avisos_expiram_em", expira_em)
         return {"ok": True, "duplicado": False, "avisos": avisos, "expiram_em": expira_em}
 
     async def remover_aviso(self, indice):
         avisos = await self._carregar_avisos()
-        try:
-            indice = int(indice)
-        except Exception:
-            return {"ok": False, "avisos": avisos}
-        if indice < 0 or indice >= len(avisos):
-            return {"ok": False, "avisos": avisos}
-        removido = avisos.pop(indice)
-        await self._salvar_avisos(avisos)
-        if not avisos:
-            await self.ctx.storage.delete("avisos_expiram_em")
+        try: indice = int(indice)
+        except Exception: return {"ok": False, "avisos": avisos}
+        if indice < 0 or indice >= len(avisos): return {"ok": False, "avisos": avisos}
+        removido = avisos.pop(indice); await self._salvar_avisos(avisos)
+        if not avisos: await self.ctx.storage.delete("avisos_expiram_em")
         return {"ok": True, "removido": removido, "avisos": avisos}
 
     async def limpar_avisos(self):
-        await self._limpar_avisos_interno()
-        return {"ok": True, "avisos": []}
+        await self._limpar_avisos_interno(); return {"ok": True, "avisos": []}
 
     async def iniciar_aviso_personalizado(self):
-        await self.ctx.storage.put("aguardando_aviso_personalizado", True)
-        return {"ok": True}
+        await self.ctx.storage.put("aguardando_aviso_personalizado", True); return {"ok": True}
 
     async def cancelar_aviso_personalizado(self):
-        await self.ctx.storage.delete("aguardando_aviso_personalizado")
-        return {"ok": True}
+        await self.ctx.storage.delete("aguardando_aviso_personalizado"); return {"ok": True}
 
     async def aguardando_aviso_personalizado(self):
-        await self._expirar_avisos_se_necessario()
-        return {"ativo": bool(await self.ctx.storage.get("aguardando_aviso_personalizado"))}
+        await self._expirar_avisos_se_necessario(); return {"ativo": bool(await self.ctx.storage.get("aguardando_aviso_personalizado"))}
 
     async def salvar_aviso_personalizado(self, texto):
         resultado = await self.adicionar_aviso(texto)
-        if resultado.get("ok"):
-            await self.ctx.storage.delete("aguardando_aviso_personalizado")
+        if resultado.get("ok"): await self.ctx.storage.delete("aguardando_aviso_personalizado")
         return resultado
 
-    # -------------------- MICRO --------------------
     async def _expirar_micro_se_necessario(self):
-        if not await self.ctx.storage.get("micro_ativo"):
-            return
-
+        if not await self.ctx.storage.get("micro_ativo"): return
         agora = agora_local()
-        if not micro_pode_operar_agora(agora):
-            await self.desativar_micro()
-            return
-
+        if not micro_pode_operar_agora(agora): await self.desativar_micro(); return
         expira_em = await self.ctx.storage.get("micro_expira_em")
-        if not expira_em:
-            return
-        try:
-            limite = datetime.fromisoformat(str(expira_em))
-        except Exception:
-            await self.desativar_micro()
-            return
-        if agora >= limite:
-            await self.desativar_micro()
+        if not expira_em: return
+        try: limite = datetime.fromisoformat(str(expira_em))
+        except Exception: await self.desativar_micro(); return
+        if agora >= limite: await self.desativar_micro()
 
     async def micro_status(self):
         await self._expirar_micro_se_necessario()
-        return {
-            "ativo": bool(await self.ctx.storage.get("micro_ativo")),
-            "ativado_em": await self.ctx.storage.get("micro_ativado_em"),
-            "expira_em": await self.ctx.storage.get("micro_expira_em"),
-        }
+        return {"ativo": bool(await self.ctx.storage.get("micro_ativo")), "ativado_em": await self.ctx.storage.get("micro_ativado_em"), "expira_em": await self.ctx.storage.get("micro_expira_em")}
 
     async def ativar_micro(self):
         await self._expirar_micro_se_necessario()
-        if await self.ctx.storage.get("micro_ativo"):
-            return {"ok": True, "ja_ativo": True, **(await self.micro_status())}
-
-        agora = agora_local()
-        janela = janela_operacao_micro_atual(agora)
-        if janela is None:
-            return {"ok": False, "ja_ativo": False, "motivo": "fora_horario_micro"}
-
-        await self.ctx.storage.put("micro_ativo", True)
-        await self.ctx.storage.put("micro_ativado_em", agora.isoformat())
-        await self.ctx.storage.put("micro_expira_em", janela["fim"].isoformat())
-        await self.ctx.storage.delete("estado_micro")
+        if await self.ctx.storage.get("micro_ativo"): return {"ok": True, "ja_ativo": True, **(await self.micro_status())}
+        agora = agora_local(); janela = janela_operacao_micro_atual(agora)
+        if janela is None: return {"ok": False, "ja_ativo": False, "motivo": "fora_horario_micro"}
+        await self.ctx.storage.put("micro_ativo", True); await self.ctx.storage.put("micro_ativado_em", agora.isoformat()); await self.ctx.storage.put("micro_expira_em", janela["fim"].isoformat()); await self.ctx.storage.delete("estado_micro")
         return {"ok": True, "ja_ativo": False, **(await self.micro_status())}
 
     async def desativar_micro(self):
-        await self.ctx.storage.delete("micro_ativo")
-        await self.ctx.storage.delete("micro_ativado_em")
-        await self.ctx.storage.delete("micro_expira_em")
-        await self.ctx.storage.delete("estado_micro")
-        return {"ok": True}
+        await self.ctx.storage.delete("micro_ativo"); await self.ctx.storage.delete("micro_ativado_em"); await self.ctx.storage.delete("micro_expira_em"); await self.ctx.storage.delete("estado_micro"); return {"ok": True}
 
     async def localizacao_micro(self):
-        await self._expirar_micro_se_necessario()
-        estado = await self._carregar_chave_estado("estado_micro")
-        if not await self.ctx.storage.get("micro_ativo"):
-            return {"ativo": False, "estado": estado, "texto": ""}
-        agora = agora_local()
-        estado, texto = montar_localizacao_com_biblioteca(estado, agora)
-        await self._salvar_chave_estado("estado_micro", estado)
+        await self._expirar_micro_se_necessario(); estado = await self._carregar_chave_estado("estado_micro")
+        if not await self.ctx.storage.get("micro_ativo"): return {"ativo": False, "estado": estado, "texto": ""}
+        agora = agora_local(); estado, texto = montar_localizacao_com_biblioteca(estado, agora); await self._salvar_chave_estado("estado_micro", estado)
         return {"ativo": True, "estado": estado, "texto": texto}
 
     async def registrar_micro(self, ponto_id, telegram_id=None):
-        """Registra o micro sem trava temporal ou pré-bloqueio rígido de sequência.
-
-        O fluxo normal de registrar_passagem continua responsável por interpretar
-        o ponto e o histórico da rota. Isso permite que uma confirmação real de
-        uma nova volta não fique presa ao estado anterior do micro.
-        """
         await self._expirar_micro_se_necessario()
-        if not await self.ctx.storage.get("micro_ativo"):
-            return {"aceito": False, "motivo": "micro_inativo"}
-        estado = await self._carregar_chave_estado("estado_micro")
-        agora = agora_local()
-        estado, resultado = registrar_passagem(estado, ponto_id, telegram_id, agora=agora)
-        estado = ajustar_primeiro_ponto(estado, resultado, agora)
-        await self._salvar_chave_estado("estado_micro", estado)
-        return resultado
+        if not await self.ctx.storage.get("micro_ativo"): return {"aceito": False, "motivo": "micro_inativo"}
+        estado = await self._carregar_chave_estado("estado_micro"); agora = agora_local(); estado, resultado = registrar_passagem(estado, ponto_id, telegram_id, agora=agora); estado = ajustar_primeiro_ponto(estado, resultado, agora); await self._salvar_chave_estado("estado_micro", estado); return resultado
 
-    # -------------------- PRINCIPAL --------------------
     async def status_registro_principal(self):
-        estado = await self._carregar()
-        agora = agora_local()
-        estado_original = estado
-        estado = reiniciar_se_novo_ciclo_noturno(estado, agora)
-        estado = expirar_confirmacao_volta_anterior(estado, agora)
-        if estado != estado_original:
-            await self._salvar(estado)
-
+        estado = await self._carregar(); agora = agora_local(); original = estado; estado = reiniciar_se_novo_ciclo_noturno(estado, agora); estado = expirar_confirmacao_volta_anterior(estado, agora)
+        if estado != original: await self._salvar(estado)
         bloco = _bloco_registro_ativo(estado, agora)
-        return {
-            "ativo": bloco is not None,
-            "bloco_id": bloco.get("id") if bloco else None,
-            "inicio": bloco.get("inicio") if bloco else None,
-            "ultima": bloco.get("ultima") if bloco else None,
-        }
+        return {"ativo": bloco is not None, "bloco_id": bloco.get("id") if bloco else None, "inicio": bloco.get("inicio") if bloco else None, "ultima": bloco.get("ultima") if bloco else None}
 
     async def localizacao(self):
-        estado = await self._carregar()
-        agora = agora_local()
-        estado = reiniciar_se_novo_ciclo_noturno(estado, agora)
-        estado = expirar_confirmacao_volta_anterior(estado, agora)
-
+        estado = await self._carregar(); agora = agora_local(); estado = reiniciar_se_novo_ciclo_noturno(estado, agora); estado = expirar_confirmacao_volta_anterior(estado, agora)
         sem_operacao = contexto_sem_operacao(estado, agora)
-        if sem_operacao is not None:
-            await self._salvar(estado)
-            return {"texto": texto_sem_operacao(sem_operacao)}
-
-        estado, texto = montar_localizacao_com_biblioteca(estado, agora)
-        await self._salvar(estado)
-        return {"texto": texto}
+        if sem_operacao is not None: await self._salvar(estado); return {"texto": texto_sem_operacao(sem_operacao)}
+        estado, texto = montar_localizacao_com_biblioteca(estado, agora); await self._salvar(estado); return {"texto": texto}
 
     async def resumo_horarios(self):
-        estado = await self._carregar()
-        agora = agora_local()
-        estado = reiniciar_se_novo_ciclo_noturno(estado, agora)
-        estado = expirar_confirmacao_volta_anterior(estado, agora)
-        await self._salvar(estado)
-        return {"texto": montar_resumo_horarios(estado=estado, agora=agora)}
+        estado = await self._carregar(); agora = agora_local(); estado = reiniciar_se_novo_ciclo_noturno(estado, agora); estado = expirar_confirmacao_volta_anterior(estado, agora); await self._salvar(estado); return {"texto": montar_resumo_horarios(estado=estado, agora=agora)}
 
     async def registrar(self, ponto_id, telegram_id=None):
-        estado = await self._carregar()
-        agora = agora_local()
-        estado_original = estado
-        estado = reiniciar_se_novo_ciclo_noturno(estado, agora)
-        estado = expirar_confirmacao_volta_anterior(estado, agora)
-
+        estado = await self._carregar(); agora = agora_local(); original = estado; estado = reiniciar_se_novo_ciclo_noturno(estado, agora); estado = expirar_confirmacao_volta_anterior(estado, agora)
         if _bloco_registro_ativo(estado, agora) is None:
-            if estado != estado_original:
-                await self._salvar(estado)
+            if estado != original: await self._salvar(estado)
             return {"aceito": False, "motivo": "fora_circulacao"}
-
-        if confirmacao_inicia_novo_bloco(estado, ponto_id, agora):
-            estado = estado_vazio()
-
-        if estado != estado_original:
-            await self._salvar(estado)
-
-        bloqueio = validar_deslocamento(
-            estado,
-            ponto_id,
-            agora,
-            exigir_nova_saida_para_ciclo=True,
-        )
-        if bloqueio is not None:
-            return bloqueio
-
-        estado, resultado = registrar_passagem(estado, ponto_id, telegram_id, agora=agora)
-        estado = ajustar_primeiro_ponto(estado, resultado, agora)
-        await self._salvar(estado)
-        return resultado
+        if confirmacao_inicia_novo_bloco(estado, ponto_id, agora): estado = estado_vazio()
+        if estado != original: await self._salvar(estado)
+        # Dentro do bloco o relógio não decide a troca de volta. Os pontos são a
+        # evidência principal; o horário continua apenas como referência.
+        estado, resultado = registrar_passagem(estado, ponto_id, telegram_id, agora=agora); estado = ajustar_primeiro_ponto(estado, resultado, agora); await self._salvar(estado); return resultado
 
     async def limpar(self):
-        await self._salvar(estado_vazio())
-        return {"ok": True}
+        await self._salvar(estado_vazio()); return {"ok": True}
