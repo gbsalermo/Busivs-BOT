@@ -90,11 +90,22 @@ def _resultado_primeiro_ponto(ponto_id):
             "motivo": "primeira_confirmacao_sem_contexto",
         }
     if ponto_id == "ru":
+        indice = next((i for i, item in enumerate(ROTA) if item["ponto_id"] == "ru"), None)
+        if indice is None:
+            return {
+                "ponto_atual_id": "ru",
+                "sentido": None,
+                "proximo": None,
+                "ru_primeiro_ponto": True,
+            }
         return {
+            "ponto_anterior": None,
+            "ponto_atual": PONTOS["ru"]["nome"],
             "ponto_atual_id": "ru",
-            "fim_volta": True,
-            "sentido": None,
-            "proximo": None,
+            "indice_atual": indice,
+            "sentido": ROTA[indice]["sentido_apos"],
+            "proximo": _proximo(indice),
+            "ru_primeiro_ponto": True,
         }
     ocorrencias = _ocorrencias(ponto_id)
     if len(ocorrencias) != 1:
@@ -148,7 +159,7 @@ def registrar_sem_relogio(estado, ponto_id, telegram_id, agora):
     if anterior is None:
         resultado = _resultado_primeiro_ponto(ponto_id)
 
-    if ponto_id == "ru":
+    if ponto_id == "ru" and anterior is not None:
         if resultado is None:
             resultado = {"ponto_atual_id": "ru", "sentido": None, "proximo": None}
         resultado["fim_volta"] = True
@@ -177,7 +188,7 @@ def registrar_sem_relogio(estado, ponto_id, telegram_id, agora):
         "primeiro_registro": anterior is None,
         "ponto": PONTOS[ponto_id]["nome"],
         "resultado_rota": resultado,
-        "fim_volta": ponto_id == "ru",
+        "fim_volta": ponto_id == "ru" and anterior is not None,
     }
 
 
@@ -258,6 +269,14 @@ def texto_localizacao_colaborativa(estado, agora, titulo="🚐 Micro"):
 
     linhas = [titulo, "", f"📍 Última confirmação: {nome}", f"🕐 {tempo} ({hora_txt})"]
     resultado = estado.get("resultado_rota") or {}
+
+    if resultado.get("ru_primeiro_ponto"):
+        proximo = resultado.get("proximo")
+        linhas += ["", "🚌 Passagem pelo RU confirmada no início do percurso."]
+        if proximo:
+            linhas += ["⏭️ Próximo esperado:", f"     📍 {proximo['nome']}"]
+        linhas.append("➡️ Sentido: RUA")
+        return "\n".join(linhas)
 
     if ponto_id == "ru" or resultado.get("fim_volta"):
         linhas += ["", "🏁 Chegada ao RU — fim da volta.", "🔄 Uma nova volta só será assumida quando outro ponto indicar o reinício."]
