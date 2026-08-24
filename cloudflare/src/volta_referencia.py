@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from dados import BLOCOS_PRINCIPAL, HORARIOS
-from regras import estimar_chegada_portao_1
+from regras import agora_local, estimar_chegada_portao_1
 
 JANELA_RU_REFERENCIA_MINUTOS = 10
 JANELA_RU_REFERENCIA_PICO_MINUTOS = 60
@@ -102,14 +102,26 @@ def retornar_volta_anterior(estado, agora):
     return estado, anterior
 
 
-def proxima_apos_referencia(estado):
+def proxima_apos_referencia(estado, agora=None):
+    """Retorna a próxima referência somente depois de seu horário oficial.
+
+    Um ponto que indique reinício da rota antes da próxima saída programada não
+    deve adiantar a referência. Ex.: após concluir 11:55 no RU, Fitotecnia às
+    12:04 ainda pertence ao contexto 11:55; 12:20 só pode virar referência a
+    partir de 12:20.
+    """
     viagem = viagem_por_referencia(estado)
     if viagem is None:
         return None
     indice = _indice_hora(viagem["hora"])
     if indice is None or indice + 1 >= len(HORARIOS["principal"]):
         return None
-    return HORARIOS["principal"][indice + 1]
+
+    proxima = HORARIOS["principal"][indice + 1]
+    referencia_tempo = agora or agora_local()
+    if _momento(proxima["hora"], referencia_tempo) > referencia_tempo:
+        return None
+    return proxima
 
 
 def _proximas_apos_viagem(viagem, quantidade=3):
