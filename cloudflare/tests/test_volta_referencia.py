@@ -4,7 +4,7 @@ from datetime import datetime, timezone, timedelta
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from volta_referencia import retornar_volta_anterior, saida_ru_recente
+from volta_referencia import proxima_apos_referencia, retornar_volta_anterior, saida_ru_recente
 
 FUSO = timezone(timedelta(hours=-3))
 
@@ -30,6 +30,23 @@ def test_ru_1330_prefere_nova_saida_1325():
 
     assert viagem is not None
     assert viagem["hora"] == "13:25"
+
+
+def test_referencia_1155_nao_avanca_para_1220_antes_do_horario():
+    estado = {"saida_referencia": "11:55"}
+    agora = datetime(2026, 8, 24, 12, 4, tzinfo=FUSO)
+
+    assert proxima_apos_referencia(estado, agora=agora) is None
+
+
+def test_referencia_1155_pode_avancar_para_1220_a_partir_de_1220():
+    estado = {"saida_referencia": "11:55"}
+    agora = datetime(2026, 8, 24, 12, 20, tzinfo=FUSO)
+
+    proxima = proxima_apos_referencia(estado, agora=agora)
+
+    assert proxima is not None
+    assert proxima["hora"] == "12:20"
 
 
 def test_admin_retorna_de_0740_para_0725_sem_apagar_estado():
