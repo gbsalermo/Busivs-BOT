@@ -3,6 +3,7 @@ from datetime import datetime
 from dados import PONTOS, ROTA
 
 MAX_HISTORICO = 40
+JANELA_REPASSAGEM_BIBLIOTECA_MINUTOS = 15
 
 
 def _iso(agora):
@@ -122,6 +123,23 @@ def _resultado_primeiro_ponto(ponto_id):
     }
 
 
+def _biblioteca_pode_ser_reconfirmada(estado, agora):
+    if (estado or {}).get("ponto_atual") != "biblioteca":
+        return False
+
+    resultado = (estado or {}).get("resultado_rota") or {}
+    # Se já estamos explicitamente na Biblioteca de retorno, uma nova marcação
+    # igual continua sendo duplicada. A exceção serve para ida/ambiguidade -> retorno.
+    if resultado.get("sentido") == "RU" and not resultado.get("biblioteca_ambigua"):
+        return False
+
+    horario = _dt((estado or {}).get("horario"))
+    if horario is None or horario.date() != agora.date() or agora < horario:
+        return False
+
+    return agora - horario >= __import__("datetime").timedelta(minutes=JANELA_REPASSAGEM_BIBLIOTECA_MINUTOS)
+
+
 def registrar_sem_relogio(estado, ponto_id, telegram_id, agora):
     """Registra uma confirmação usando somente a rota e evidências anteriores.
 
@@ -144,7 +162,9 @@ def registrar_sem_relogio(estado, ponto_id, telegram_id, agora):
             "historico": [],
         }
 
-    if estado.get("ponto_atual") == ponto_id:
+    mesmo_ponto = estado.get("ponto_atual") == ponto_id
+    repeticao_biblioteca = ponto_id == "biblioteca" and _biblioteca_pode_ser_reconfirmada(estado, agora)
+    if mesmo_ponto and not repeticao_biblioteca:
         return estado, {
             "aceito": False,
             "motivo": "duplicado",
@@ -153,11 +173,20 @@ def registrar_sem_relogio(estado, ponto_id, telegram_id, agora):
 
     anterior = estado.get("ponto_atual")
     historico = list(estado.get("historico", []))
-    resultado = _resultado_historico(historico, ponto_id)
-    if resultado is None and anterior:
-        resultado = _analisar(anterior, ponto_id)
-    if anterior is None:
-        resultado = _resultado_primeiro_ponto(ponto_id)
+
+    if repeticao_biblioteca:
+        # Biblioteca existe duas vezes na rota. Depois da janela mínima, uma nova
+        # confirmação consecutiva pode representar a passagem de retorno.
+        resultado = _analisar("biblioteca", "biblioteca")
+        if resultado:
+            resultado["reconfirmacao_biblioteca"] = True
+            resultado["tempo_minimo_min"] = JANELA_REPASSAGEM_BIBLIOTECA_MINUTOS
+    else:
+        resultado = _resultado_historico(historico, ponto_id)
+        if resultado is None and anterior:
+            resultado = _analisar(anterior, ponto_id)
+        if anterior is None:
+            resultado = _resultado_primeiro_ponto(ponto_id)
 
     if ponto_id == "ru" and anterior is not None:
         if resultado is None:
@@ -189,6 +218,7 @@ def registrar_sem_relogio(estado, ponto_id, telegram_id, agora):
         "ponto": PONTOS[ponto_id]["nome"],
         "resultado_rota": resultado,
         "fim_volta": ponto_id == "ru" and anterior is not None,
+        "reconfirmacao_biblioteca": repeticao_biblioteca,
     }
 
 
