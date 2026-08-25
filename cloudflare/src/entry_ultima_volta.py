@@ -70,6 +70,17 @@ def _eh_ultima_volta(estado, agora):
     viagem, indice_bloco, bloco = _viagem_atual_e_bloco(estado, agora)
     if not viagem or not bloco or viagem.get("hora") != bloco.get("ultima"):
         return False, viagem, indice_bloco, bloco
+
+    # A referência atual pode já ter sido preparada para a próxima saída quando
+    # uma volta terminou no RU. Isso NÃO significa que essa próxima referência
+    # também terminou. Só tratamos como fim de bloco quando a referência
+    # efetivamente fechada é a última do bloco (ou quando não existe marcador de
+    # fechamento preparado, preservando compatibilidade com estados antigos).
+    resultado = (estado or {}).get("resultado_rota") or {}
+    referencia_fechada = resultado.get("referencia_fechada")
+    if referencia_fechada and referencia_fechada != bloco.get("ultima"):
+        return False, viagem, indice_bloco, bloco
+
     return True, viagem, indice_bloco, bloco
 
 
@@ -82,8 +93,6 @@ def _fase_final_ultima_volta(estado, agora):
     if ponto not in PONTOS_FINAIS_GARAGEM:
         return False, viagem, indice_bloco, bloco
     if ponto == "ru":
-        # RU pode ser tanto a chegada da volta quanto a ORIGEM de uma nova saída.
-        # Só é fase final quando a própria rota já concluiu no RU (sem próximo ponto).
         if resultado.get("ponto_atual_id") != "ru" or resultado.get("proximo") is not None:
             return False, viagem, indice_bloco, bloco
         return True, viagem, indice_bloco, bloco
@@ -98,8 +107,6 @@ def _contexto_ultima_volta(estado, agora):
     ultima, _, indice_bloco, _ = _eh_ultima_volta(estado, agora)
     if not ultima:
         return ""
-    # Não basta ser a última saída oficial: o aviso de retorno só pode aparecer
-    # quando a confirmação atual realmente estiver na fase final da volta.
     fase_final, _, _, _ = _fase_final_ultima_volta(estado, agora)
     if not fase_final:
         return ""
