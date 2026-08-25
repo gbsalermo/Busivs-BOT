@@ -50,6 +50,31 @@ def _bloco_por_referencia(hora):
     return candidatos[0] if candidatos else None
 
 
+def _proxima_referencia_programada_mesmo_bloco(estado):
+    """Retorna a próxima volta da grade sem usar o relógio como gatilho.
+
+    A chegada ao RU encerra a volta atual e pode preparar a referência seguinte
+    do MESMO bloco, mesmo que o horário oficial dela ainda esteja alguns minutos
+    à frente. Nunca atravessa automaticamente para outro bloco.
+    """
+    referencia = (estado or {}).get("saida_referencia")
+    if not referencia:
+        return None
+
+    horarios = HORARIOS.get("principal", [])
+    indice = next((i for i, viagem in enumerate(horarios) if viagem.get("hora") == referencia), None)
+    if indice is None or indice + 1 >= len(horarios):
+        return None
+
+    atual = horarios[indice]
+    proxima = horarios[indice + 1]
+    bloco_atual = _bloco_por_referencia(atual.get("hora"))
+    bloco_proximo = _bloco_por_referencia(proxima.get("hora"))
+    if not bloco_atual or not bloco_proximo or bloco_atual.get("id") != bloco_proximo.get("id"):
+        return None
+    return proxima
+
+
 def _bloco_atual_ou_referenciado(estado, agora):
     bloco = _bloco_por_referencia((estado or {}).get("saida_referencia"))
     if bloco is not None:
@@ -64,36 +89,38 @@ def _bloco_atual_ou_referenciado(estado, agora):
 
 
 def _contexto_pos_ru(estado, agora):
-    """Explica de forma curta o que tende a acontecer após chegar ao RU."""
+    """Mostra o contexto pós-RU sem avançar referência pela passagem do tempo."""
     resultado = (estado or {}).get("resultado_rota") or {}
     if (estado or {}).get("ponto_atual") != "ru":
         return ""
     if resultado.get("ponto_atual_id") != "ru" or resultado.get("proximo") is not None:
         return ""
 
+    referencia = viagem_por_referencia(estado)
     bloco = _bloco_atual_ou_referenciado(estado, agora)
     if bloco is None:
         return ""
 
-    inicio = _minutos(bloco["inicio"])
-    fim = _minutos(bloco["ultima"])
-    agora_min = agora.hour * 60 + agora.minute
-    proximas = [
-        viagem for viagem in HORARIOS.get("principal", [])
-        if inicio <= _minutos(viagem["hora"]) <= fim
-        and _minutos(viagem["hora"]) > agora_min
-    ]
-
-    if proximas:
-        proxima = min(proximas, key=lambda v: _minutos(v["hora"]))
+    # Depois que o RU fecha uma volta, registrar() já deixa preparada a próxima
+    # referência do mesmo bloco. A consulta apenas exibe esse estado; nunca usa
+    # hora > agora para pular de 07:10 para 07:25, por exemplo.
+    if referencia and referencia.get("hora") != bloco.get("ultima"):
         return (
             "\n\n⏰ Próxima saída prevista neste bloco:"
-            f"\n     🕐 {proxima['hora']} — {proxima.get('origem', 'RU/Residências')}"
+            f"\n     🕐 {referencia['hora']} — {referencia.get('origem', 'RU/Residências')}"
         )
 
-    return (
-        "\n\n🅿️ Sem nova saída neste bloco; o circular provavelmente segue para a Garagem."
-    )
+    if referencia and referencia.get("hora") == bloco.get("ultima"):
+        # Se a própria última referência acabou de ser preparada, ela ainda é a
+        # próxima saída válida; se foi a volta fechada, não há outra no bloco.
+        fechamento_ref = resultado.get("referencia_fechada")
+        if fechamento_ref and fechamento_ref != referencia.get("hora"):
+            return (
+                "\n\n⏰ Próxima saída prevista neste bloco:"
+                f"\n     🕐 {referencia['hora']} — {referencia.get('origem', 'RU/Residências')}"
+            )
+
+    return "\n\n🅿️ Sem nova saída neste bloco; o circular provavelmente segue para a Garagem."
 
 
 def _enxugar_fim_volta_ru(texto):
@@ -239,6 +266,16 @@ class BusState(_core.BusState):
         if resultado.get("bloco_encerrado") or resultado.get("garagem_confirmada"):
             estado.pop("saida_referencia", None)
             estado.pop("saida_referencia_manual", None)
+        elif ponto_id == "ru" and resultado.get("fim_volta") and referencia_antes:
+            # RU encerra a referência que estava rodando. Preparamos exatamente a
+            # próxima volta do MESMO bloco; o relógio não pode pular outras depois.
+            estado.setdefault("resultado_rota", {})["referencia_fechada"] = referencia_antes
+            proxima = _proxima_referencia_programada_mesmo_bloco({"saida_referencia": referencia_antes})
+            if proxima:
+                aplicar_referencia(estado, proxima, manual=False)
+            else:
+                estado["saida_referencia"] = referencia_antes
+                estado["saida_referencia_manual"] = referencia_manual_antes
         elif ponto_id == "ru" and (transicao or sem_ponto_antes):
             viagem = saida_ru_recente(agora)
             if viagem:
