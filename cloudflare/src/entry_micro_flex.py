@@ -3,8 +3,37 @@ from datetime import datetime, timedelta
 import entry_ultima_volta as _entry
 from entry_ultima_volta import *
 from entry_core import enviar_mensagem, teclado_voltar, tempo_micro
-from micro import faixa_funcional_micro, micro_pode_ser_ativado_agora, referencia_micro_proxima
+from micro import (
+    faixa_funcional_micro,
+    janelas_operacao_micro,
+    micro_pode_ser_ativado_agora,
+    referencia_micro_proxima,
+)
 from regras import agora_local
+
+
+SESSAO_ESPORADICA_MAX_MINUTOS = 30
+
+
+def _expiracao_sessao_micro(agora):
+    """Define o limite da sessão sem permitir que ela atravesse outro bloco.
+
+    Se o micro é ativado durante um bloco oficial, a sessão termina junto com
+    esse bloco. Fora de um bloco oficial, mas ainda dentro da faixa funcional,
+    a sessão esporádica dura no máximo 30 min e nunca invade o próximo bloco.
+    """
+    blocos = janelas_operacao_micro(agora)
+
+    for bloco in blocos:
+        if bloco["inicio"] <= agora < bloco["fim"]:
+            return bloco["fim"]
+
+    limite = agora + timedelta(minutes=SESSAO_ESPORADICA_MAX_MINUTOS)
+    proximos = [bloco for bloco in blocos if bloco["inicio"] > agora]
+    if proximos:
+        proximo_inicio = min(bloco["inicio"] for bloco in proximos)
+        limite = min(limite, proximo_inicio)
+    return limite
 
 
 class BusState(_entry.BusState):
@@ -49,11 +78,11 @@ class BusState(_entry.BusState):
         faixa = faixa_funcional_micro(agora)
 
         if faixa and faixa["inicio"] <= agora < faixa["fim"]:
-            expira = faixa["fim"]
+            expira = _expiracao_sessao_micro(agora)
         else:
             # Override administrativo fora da faixa funcional: evita sessão
             # esporádica esquecida indefinidamente.
-            expira = agora + timedelta(minutes=30)
+            expira = agora + timedelta(minutes=SESSAO_ESPORADICA_MAX_MINUTOS)
 
         await self.ctx.storage.put("micro_ativo", True)
         await self.ctx.storage.put("micro_ativado_em", agora.isoformat())
