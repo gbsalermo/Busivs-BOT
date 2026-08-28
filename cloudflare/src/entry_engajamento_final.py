@@ -12,6 +12,11 @@ import entry_engajamento as _eng
 import entry_core as _core
 import entry_admin as _admin
 
+# Em produção, cada lote pode alcançar até 20 usuários que consultaram a
+# localização durante a lacuna atual. A seleção e os demais filtros continuam
+# sendo executados pela regra consolidada de entry_engajamento.
+_eng.MAX_CONVIDADOS = 20
+
 
 class BusState(_entry.BusState):
     # Reaproveita somente as rotinas de estado de engajamento. As regras de
