@@ -58,7 +58,7 @@ TELEGRAM_WEBHOOK_SECRET
 ADMIN_TELEGRAM_ID
 ```
 
-Nunca versionar os valores reais.
+Nunca versionar valores reais.
 
 ### 2.2 Camada interna — cadeia Python
 
@@ -68,7 +68,7 @@ A produção entra por:
 entry_engajamento_final.py
 ```
 
-A cadeia funcional principal observada é:
+Cadeia principal de herança/imports observada:
 
 ```text
 entry_engajamento_final
@@ -86,17 +86,17 @@ entry_engajamento_final
 
 Além da herança, existem imports auxiliares diretos entre módulos. Por isso, não remover uma camada apenas porque ela não parece ser o entrypoint final.
 
-`entry_engajamento_final.py` também reaproveita explicitamente métodos de `entry_engajamento.BusState` para manter o engajamento ativo sem substituir as regras finais de consistência/antiteleporte.
+`entry_engajamento_final.py` também reaproveita explicitamente métodos de `entry_engajamento.BusState`, mantendo engajamento e cron sem substituir as regras finais de consistência/antiteleporte.
 
 ### 2.3 Estado persistente
 
 O estado operacional é compartilhado via Durable Object / SQLite.
 
-A persistência é parte do comportamento do produto. Alterações em chaves de storage, formato de estado ou classe `BusState` devem ser tratadas como mudanças de migração, não como simples refatoração.
+A persistência faz parte do comportamento do produto. Mudanças em `BusState`, chaves de storage, formatos persistidos, binding ou `class_name` devem ser tratadas como mudanças potencialmente incompatíveis com produção.
 
 ---
 
-## 3. Regras que não podem ser quebradas
+## 3. Regras de negócio que não podem ser quebradas
 
 ### 3.1 Referência de volta
 
@@ -110,14 +110,12 @@ Exemplo:
 ```text
 referência 11:30
 12:00 sem nova evidência
-=> a volta continua associada à referência 11:30
+=> continua associado à referência 11:30
 ```
 
 ### 3.2 Fim de bloco
 
 No fim real de um bloco, o relógio volta a ter autoridade para encerrar o contexto operacional e impedir que uma referência velha invada o próximo bloco.
-
-Uma volta antiga nunca deve permanecer como referência ativa depois que o novo bloco já deveria ter iniciado operacionalmente.
 
 ### 3.3 RU
 
@@ -139,11 +137,9 @@ Na última volta do bloco:
 
 ### 3.5 Biblioteca
 
-Biblioteca é um ponto ambíguo porque aparece na ida e no retorno.
+Biblioteca é ambígua porque aparece na ida e no retorno.
 
-Nunca decidir sentido somente pelo ID `biblioteca`.
-
-Usar sequência de rota, estado confiável e contexto operacional.
+Nunca decidir sentido somente pelo ID `biblioteca`. Usar sequência de rota, estado confiável e contexto operacional.
 
 ---
 
@@ -186,8 +182,6 @@ As mesmas regras conceituais se aplicam ao Principal e ao Micro.
 
 ## 5. Circular Principal
 
-O Principal é o veículo de referência do BUSIVS.
-
 Rota conceitual de ida:
 
 ```text
@@ -213,7 +207,7 @@ Portão 1
 -> RU
 ```
 
-A rota real e os rótulos oficiais devem ser conferidos em `cloudflare/src/dados.py` antes de qualquer mudança de nomenclatura.
+A rota e os rótulos oficiais devem ser conferidos em `cloudflare/src/dados.py` antes de qualquer mudança.
 
 ---
 
@@ -241,14 +235,7 @@ Referências documentadas atualmente:
 12:20 — RU/Residências
 ```
 
-Regra de ativação:
-
-- usuário comum: somente na faixa funcional;
-- antecedência operacional: cerca de 30 min antes da primeira referência;
-- sessões extraordinárias fora da faixa, quando permitidas por administração, precisam de expiração controlada;
-- não usar "tempo desde ativação" para inferir posição.
-
-Sempre validar horários em `dados.py` e regras de sessão em `micro.py` / `entry_micro_flex.py` antes de editar documentação ou comportamento.
+Regras de ativação e sessão devem ser conferidas em `micro.py` e `entry_micro_flex.py`. Tempo desde ativação não deve ser usado como prova de posição.
 
 ---
 
@@ -262,7 +249,7 @@ Regras consolidadas:
 - apenas durante operação válida do Principal;
 - silêncio conta desde a última confirmação confiável ou, se inexistente, desde a referência da saída;
 - indicação suspeita não reinicia o contador;
-- horário normal: primeiro lote ~+5 min;
+- normal: primeiro lote ~+5 min;
 - pico: primeiro lote ~+10 min;
 - segundo lote ~+15 min normal / ~+20 min pico;
 - último autor confiável pode receber fallback individual intermediário;
@@ -271,11 +258,21 @@ Regras consolidadas:
 - convite expira em 3 min;
 - respostas: `Sim, marcar ponto` ou `Não vi`.
 
-Meta de produto aprovada: **até 20 candidatos por lote**.
+### Limite de destinatários
 
-### Atenção de auditoria
+Decisão de negócio atual:
 
-Durante a Etapa 0 foi encontrado `MAX_CONVIDADOS = 10` em `entry_engajamento.py`, apesar da decisão de negócio já ter sido alterada para 20. Esta divergência deve ser corrigida e validada antes de promover a branch de limpeza para produção.
+```text
+até 20 candidatos por lote
+```
+
+A camada-base `entry_engajamento.py` ainda possui `MAX_CONVIDADOS = 10`, porém a camada final de produção executa:
+
+```python
+_eng.MAX_CONVIDADOS = 20
+```
+
+Logo, o comportamento efetivo do Worker é 20. Esta sobreposição deve ser preservada até uma futura consolidação controlada das camadas.
 
 ---
 
@@ -293,7 +290,7 @@ Garagem / Encerrar bloco
 Avisos operacionais
 ```
 
-Ajustes manuais têm prioridade operacional, mas não devem destruir histórico confiável sem necessidade.
+Ajustes manuais têm prioridade operacional, mas não devem apagar estado confiável sem necessidade.
 
 ---
 
@@ -301,154 +298,136 @@ Ajustes manuais têm prioridade operacional, mas não devem destruir histórico 
 
 A área de Ajuda possui fluxo para envio de feedback.
 
-Evolução prevista: categorizar feedbacks e permitir consulta administrativa estruturada.
+Evolução prevista: categorias estruturadas e consulta administrativa dos feedbacks recentes.
 
 ---
 
 ## 10. Arquivos de alta sensibilidade
 
-```text
-cloudflare/wrangler.jsonc
-```
-Define entrypoint, cron e Durable Object. Alteração errada pode derrubar produção mesmo sem mudar regra de negócio.
+`cloudflare/wrangler.jsonc`
+: entrypoint, cron e Durable Object. Alteração errada pode derrubar produção sem mudar uma única regra de negócio.
 
-```text
-cloudflare/src/entry_engajamento_final.py
-```
-Camada final atual de produção.
+`cloudflare/src/entry_engajamento_final.py`
+: camada final atual de produção.
 
-```text
-cloudflare/src/entry_consistencia.py
-```
-Coerência final de Principal/Micro.
+`cloudflare/src/entry_consistencia.py`
+: coerência final de Principal/Micro.
 
-```text
-cloudflare/src/entry_antiteleporte.py
-```
-Suspeitas, evidência posterior e reinício por rota.
+`cloudflare/src/entry_antiteleporte.py`
+: suspeitas, resolução por evidência e reinício de volta.
 
-```text
-cloudflare/src/registro_colaborativo.py
-```
-Registro por rota sem depender do relógio do Principal.
+`cloudflare/src/registro_colaborativo.py`
+: registro por rota sem depender do relógio do Principal.
 
-```text
-cloudflare/src/volta_referencia.py
-```
-Persistência e troca de referência de volta.
+`cloudflare/src/volta_referencia.py`
+: referência persistente de volta.
 
-```text
-cloudflare/src/expiracao_volta.py
-```
-Fechamento operacional.
+`cloudflare/src/expiracao_volta.py`
+: fechamento real do bloco.
 
-```text
-cloudflare/src/estado_bus.py
-```
-Estado base e helpers históricos. Não assumir que todo helper ainda representa a regra final.
+`cloudflare/src/estado_bus.py`
+: estado base e helpers históricos. Nem todo helper antigo representa a regra final.
 
-```text
-cloudflare/src/dados.py
-```
-Horários, pontos e rota.
+`cloudflare/src/dados.py`
+: horários, pontos, blocos e rota.
 
-```text
-cloudflare/src/micro.py
-cloudflare/src/entry_micro_flex.py
-```
-Faixa funcional, referência e sessão do Micro.
+`cloudflare/src/micro.py` / `entry_micro_flex.py`
+: faixa funcional, referência e sessão do Micro.
 
 ---
 
-## 11. Código legado e política de limpeza
+## 11. Política de limpeza
 
-O BUSIVS cresceu por camadas `entry_*`. Algumas camadas antigas ainda podem ser importadas por outras camadas atuais.
+O BUSIVS cresceu por camadas `entry_*`. Algumas implementações antigas ainda são importadas por camadas atuais.
 
 Política obrigatória:
 
-1. não apagar módulo apenas porque existe uma implementação mais nova;
-2. primeiro provar que ele não aparece no grafo de imports da produção;
-3. depois criar teste de regressão para a regra coberta;
-4. somente então remover/consolidar;
-5. mudanças estruturais devem ser feitas em branch e nunca diretamente em produção.
+1. não apagar módulo apenas porque existe implementação mais nova;
+2. primeiro provar que ele não aparece no grafo de imports de produção;
+3. identificar a regra de negócio que ele fornece;
+4. criar teste de regressão;
+5. validar Worker, webhook, cron, Principal e Micro;
+6. somente então remover/consolidar.
 
-Durante a Etapa 0, a limpeza de código deve ser predominantemente documental e organizacional. Consolidação física das camadas fica para uma refatoração posterior com testes.
+A Etapa 0 prioriza limpeza documental e organizacional. Remoção agressiva das camadas fica para refatoração específica com cobertura de testes.
 
 ---
 
-## 12. Problemas estruturais identificados na Etapa 0
+## 12. Achados da Etapa 0
 
 ### 12.1 `.venv` versionada
 
-O repositório contém ambiente virtual versionado. Isso não deve continuar.
+O repositório contém ambiente virtual versionado. O `.gitignore` original só ignorava `.env`.
 
-O `.gitignore` foi ampliado para impedir novos arquivos locais, caches, `.venv`, `.wrangler` e artefatos de IDE.
+O `.gitignore` foi ampliado para impedir novos arquivos locais, caches, `.venv`, `.wrangler`, arquivos de IDE e logs.
 
-A remoção física da `.venv` versionada deve ser feita em operação própria, preferencialmente localmente com Git, para evitar centenas de deleções isoladas pela API.
+A remoção física da `.venv` já versionada deve ser feita em operação própria, preferencialmente via Git local, evitando centenas de deleções isoladas pela API.
 
-### 12.2 Documentação arquitetural antiga
+### 12.2 Arquitetura antiga na documentação
 
-`docs/ARQUITETURA.md` descrevia uma arquitetura planejada antiga (`bot.py`, JSON local e SQLite tradicional), diferente da produção Cloudflare atual. Ela deve apontar para a arquitetura auditada neste dossiê.
+`docs/ARQUITETURA.md` descrevia uma arquitetura planejada antiga com `bot.py`, JSON e SQLite local. Foi substituída pela arquitetura real Cloudflare + Durable Object.
 
-### 12.3 Documentação de continuidade desatualizada
+### 12.3 `CONTINUIDADE.md` desatualizado
 
-O `CONTINUIDADE.md` ainda cita `entry_consistencia.py` como entrypoint de produção e contém regras antigas de engajamento. Antes de merge para `main`, o documento deve ser reconciliado com este dossiê.
+O arquivo ainda cita `entry_consistencia.py` como entrypoint e contém informações antigas sobre engajamento. Ele deve ser reconciliado com este Dossiê antes de a branch ser promovida a `main`.
+
+### 12.4 Camada externa x interna
+
+A configuração Cloudflare e a cadeia Python devem ser auditadas separadamente. O fato de uma regra existir em um módulo não significa que ela esteja exposta pelo entrypoint configurado no Worker.
 
 ---
 
-## 13. Testes mínimos antes de qualquer merge estrutural
+## 13. Testes mínimos antes de merge estrutural
 
 Principal:
 
-1. consulta `Onde está o ônibus?` mantém estado coerente;
+1. `Onde está o ônibus?` mantém estado coerente;
 2. marcação confiável atualiza posição;
-3. salto suspeito não substitui o confiável;
+3. salto suspeito não substitui estado confiável;
 4. evidência posterior resolve suspeita;
 5. RU encerra volta sem iniciar próxima sozinho;
-6. reinício por Fitotecnia/Solos/Pav I funciona sem RU explícito;
-7. fim de bloco impede referência antiga de invadir o seguinte;
+6. reinício por rota funciona sem RU explícito;
+7. fim de bloco impede referência antiga de invadir o bloco seguinte;
 8. Garagem encerra corretamente o bloco.
 
 Micro:
 
-1. ativação somente na faixa válida;
+1. ativação somente em contexto permitido;
 2. Principal e Micro permanecem independentes;
-3. referência do Micro não avança só pelo relógio;
-4. suspeitas seguem as mesmas regras de confiabilidade;
+3. referência não avança só pelo relógio;
+4. suspeitas seguem a mesma separação de confiabilidade;
 5. sessão não atravessa bloco indevidamente.
 
 Engajamento:
 
 1. consulta de usuário comum gera candidatura;
 2. admin não entra por engano no lote normal;
-3. cron roda sem confirmação recente;
-4. limite de candidatos respeita a configuração vigente;
+3. cron dispara quando aplicável;
+4. limite efetivo é de até 20 candidatos;
 5. máximo de 2 lotes coletivos por volta;
 6. nova confirmação reinicia a lacuna;
 7. convite expira em 3 min.
 
 Cloudflare:
 
-1. `wrangler.jsonc` aponta para a camada final esperada;
-2. `BusState` exportado continua compatível com Durable Object existente;
-3. webhook do Telegram continua respondendo;
+1. `wrangler.jsonc` aponta para `entry_engajamento_final.py`;
+2. `BusState` exportado continua compatível com o Durable Object existente;
+3. webhook continua respondendo;
 4. cron continua ativo.
 
 ---
 
-## 14. Regra de documentação
-
-Hierarquia documental recomendada:
+## 14. Hierarquia documental
 
 ```text
 DOSSIE_MESTRE_BUSIVS.md
 = fonte de verdade de arquitetura e regras
 
 CONTINUIDADE.md
-= onde o desenvolvimento parou + próxima etapa
+= status atual + próxima etapa
 
 PLANO_EVOLUCAO_BUSIVS.md
-= etapas futuras e prioridades
+= etapas futuras
 
 ARQUITETURA.md
 = visão técnica resumida
@@ -457,20 +436,20 @@ Demais docs
 = detalhes específicos ou histórico
 ```
 
-Quando houver conflito entre documentação antiga e código efetivo auditado, não alterar o código automaticamente para “combinar com o documento”. Primeiro identificar qual comportamento é o aprovado mais recente e então atualizar a documentação.
+Quando houver conflito entre documento antigo e código efetivo auditado, não alterar o código automaticamente para combinar com o documento. Primeiro identificar qual comportamento foi aprovado mais recentemente.
 
 ---
 
-## 15. Próxima fase após Etapa 0
+## 15. Próxima fase após a Etapa 0
 
-Depois da limpeza e validação documental, a próxima etapa é a Fundação de Analytics:
+A próxima etapa é a Fundação de Analytics:
 
 - usuários únicos;
 - interações;
 - consultas de localização;
 - confirmações;
 - métricas por volta;
-- efetividade dos avisos de colaboração;
-- painel administrativo de estatísticas.
+- efetividade dos avisos;
+- painel administrativo.
 
 Analytics deve ser observacional: falha de métrica nunca pode impedir resposta, confirmação ou funcionamento operacional do BUSIVS.
