@@ -12,37 +12,21 @@ Produção:
 main -> Cloudflare Workers + Telegram Webhook + Durable Object
 ```
 
-Branch de limpeza em andamento:
+Branch da Etapa 0:
 
 ```text
 chore/etapa-0-limpeza-dossie
 ```
 
-Esta branch foi criada a partir do estado atual da `main` e não deve ser tratada como produção até validação/merge.
+A branch nasceu do estado atual da `main` e ainda não deve ser tratada como produção até validação/merge.
 
 ## Fonte de verdade
 
-A partir desta etapa, regras de negócio e arquitetura não ficam mais concentradas neste arquivo.
-
-Consultar primeiro:
+Regras permanentes e arquitetura:
 
 ```text
 docs/DOSSIE_MESTRE_BUSIVS.md
 ```
-
-Ele contém:
-
-- arquitetura efetiva;
-- camada externa Cloudflare;
-- cadeia interna Python;
-- Principal e Micro;
-- regras de volta/bloco;
-- RU, Biblioteca e Garagem;
-- antiteleporte e estado não confiável;
-- engajamento colaborativo;
-- arquivos sensíveis;
-- política de limpeza/refatoração;
-- testes mínimos antes de mudanças estruturais.
 
 Plano futuro:
 
@@ -56,17 +40,23 @@ Arquitetura resumida:
 docs/ARQUITETURA.md
 ```
 
+Auditoria da limpeza:
+
+```text
+docs/AUDITORIA_ETAPA_0.md
+```
+
 ---
 
 ## Produção efetiva
 
-Arquivo externo de configuração:
+Configuração externa:
 
 ```text
 cloudflare/wrangler.jsonc
 ```
 
-Entrypoint configurado:
+Entrypoint:
 
 ```text
 cloudflare/src/entry_engajamento_final.py
@@ -77,9 +67,8 @@ Configuração relevante:
 ```text
 Worker: busivs-bot
 Cron: * * * * *
-Durable Object binding: BUS_STATE
-class: BusState
-storage: sqlite
+Durable Object: BUS_STATE -> BusState
+Storage: sqlite
 ```
 
 Cadeia principal atual:
@@ -98,36 +87,32 @@ entry_engajamento_final
 -> entry_core
 ```
 
-Não remover módulos `entry_*` olhando apenas o nome. Existem heranças e imports auxiliares entre camadas.
+Não remover módulos `entry_*` apenas pelo nome; existem heranças e imports auxiliares.
 
 ---
 
-## Princípios operacionais preservados
+## Regras centrais preservadas
 
 ```text
 confirmação confiável > inferência pelo trajeto > horário
 ```
 
-Regras centrais:
-
-1. horário é referência de volta, não prova automática de posição;
-2. dentro de um bloco, relógio sozinho não troca a volta;
+1. horário é referência, não prova automática de posição;
+2. dentro do bloco, relógio sozinho não troca a volta;
 3. fim real de bloco pode encerrar o contexto e impedir vazamento para o bloco seguinte;
-4. RU confiável encerra a volta, mas não inicia a próxima sozinho;
+4. RU confiável encerra volta, mas não inicia a próxima sozinho;
 5. nova volta pode ser reconhecida pela sequência real da rota;
 6. Biblioteca é ambígua e depende de contexto;
-7. salto suspeito não é bloqueado: vira indicação não confiável;
+7. salto suspeito vira indicação não confiável em vez de ser bloqueado;
 8. indicação suspeita não substitui estado confiável;
 9. Principal e Micro permanecem independentes;
-10. última volta mantém percurso de retorno sentido Garagem sem esconder os pontos ainda atendidos.
+10. última volta mantém o percurso de retorno sentido Garagem sem esconder pontos ainda atendidos.
 
-Detalhes completos estão no Dossiê Mestre.
+Detalhes completos: `docs/DOSSIE_MESTRE_BUSIVS.md`.
 
 ---
 
 ## Engajamento colaborativo
-
-A camada final de produção mantém pedidos automáticos de confirmação.
 
 Regras atuais:
 
@@ -141,52 +126,55 @@ Regras atuais:
 - nova confirmação confiável reinicia a lacuna de silêncio;
 - administrador não entra normalmente no lote coletivo.
 
-Limite efetivo atual:
+Limite efetivo:
 
 ```text
 até 20 usuários por lote
 ```
 
-Observação técnica: `entry_engajamento.py` mantém constante-base 10, mas `entry_engajamento_final.py` sobrescreve `_eng.MAX_CONVIDADOS = 20`. Portanto o comportamento efetivo do Worker é 20.
+`entry_engajamento.py` mantém constante-base 10, mas `entry_engajamento_final.py` sobrescreve `_eng.MAX_CONVIDADOS = 20`; portanto o Worker efetivo usa 20.
 
 ---
 
-## Etapa 0 — o que já foi feito
+## Etapa 0 — concluído na branch
 
-Na branch `chore/etapa-0-limpeza-dossie`:
+Foi realizado:
 
-- criado `docs/DOSSIE_MESTRE_BUSIVS.md`;
-- atualizado `docs/ARQUITETURA.md` para a arquitetura Cloudflare real;
-- criado `docs/PLANO_EVOLUCAO_BUSIVS.md`;
-- ampliado `.gitignore` para Python, ambientes virtuais, Wrangler, IDE e logs;
-- identificado que `.venv` está versionada no histórico/repositório;
-- identificada documentação antiga que ainda descrevia arquitetura pré-Cloudflare;
-- mapeada a cadeia efetiva do entrypoint de produção;
-- confirmada a diferença entre constante-base de engajamento e override final para 20.
+- criação do Dossiê Mestre;
+- atualização da arquitetura para Cloudflare real;
+- criação do plano oficial de evolução;
+- atualização do README;
+- transformação deste arquivo em continuidade curta;
+- arquivamento documental do roadmap Beta antigo;
+- criação da auditoria da Etapa 0;
+- reforço do `.gitignore`;
+- identificação da `.venv` versionada;
+- mapeamento da cadeia efetiva de produção;
+- confirmação do override efetivo de 20 usuários no engajamento.
 
-Nenhuma regra de localização, rota, bloco, Micro, webhook ou Durable Object foi modificada durante esta limpeza documental.
+Nenhuma regra funcional de localização, rota, bloco, Micro, webhook, cron ou Durable Object foi alterada durante esta limpeza.
+
+### Mantido propositalmente para operação separada
+
+```text
+remoção física da .venv já versionada
+```
+
+Motivo: é mais seguro executar uma limpeza Git dedicada (`git rm -r --cached .venv`) do que centenas de deleções isoladas pela API.
+
+Também não foram consolidadas/removidas camadas `entry_*`; isso exigirá testes de regressão antes.
 
 ---
 
-## Pendências da Etapa 0
+## Próxima etapa
 
-Antes de merge:
-
-1. revisar `README.md` para apontar para o Dossiê e remover informações antigas;
-2. registrar formalmente o inventário de arquivos/documentos históricos;
-3. não remover `.venv` em centenas de chamadas pela API — fazer limpeza física em operação Git própria;
-4. não consolidar `entry_*` sem testes de regressão;
-5. comparar branch com `main` e confirmar que não houve alteração funcional acidental.
-
----
-
-## Próxima etapa após a limpeza
+Depois de validar/mergear a Etapa 0:
 
 ```text
 ETAPA 1 — Fundação de Analytics
 ```
 
-Objetivo inicial:
+Objetivo:
 
 - usuários únicos;
 - interações;
@@ -205,10 +193,11 @@ falha de analytics nunca pode impedir o funcionamento normal do BUSIVS
 
 ## Ao retomar o projeto
 
-Ordem recomendada de leitura:
+Leia nesta ordem:
 
 1. `CONTINUIDADE.md`;
 2. `docs/DOSSIE_MESTRE_BUSIVS.md`;
 3. `docs/PLANO_EVOLUCAO_BUSIVS.md`;
-4. `docs/ARQUITETURA.md`;
-5. arquivos específicos da etapa em execução.
+4. `docs/AUDITORIA_ETAPA_0.md`;
+5. `docs/ARQUITETURA.md`;
+6. arquivos específicos da etapa em execução.
