@@ -29,6 +29,13 @@ class BusState(_entry.BusState):
     _consultas_da_janela = _eng.BusState._consultas_da_janela
     candidatos_engajamento = _eng.BusState.candidatos_engajamento
 
+    def _analytics_admin(self, telegram_id):
+        try:
+            esperado = str(self.env.ADMIN_TELEGRAM_ID).strip()
+        except Exception:
+            return False
+        return bool(esperado and str(telegram_id) == esperado)
+
     async def registrar_evento_analytics(self, telegram_id, evento, admin=False, contar_interacao=True):
         return await _analytics.registrar_evento(
             self.ctx.storage,
@@ -48,6 +55,7 @@ class BusState(_entry.BusState):
                 await self.registrar_evento_analytics(
                     telegram_id,
                     "confirmacao_principal",
+                    admin=self._analytics_admin(telegram_id),
                     contar_interacao=False,
                 )
             except Exception:
@@ -61,6 +69,7 @@ class BusState(_entry.BusState):
                 await self.registrar_evento_analytics(
                     telegram_id,
                     "confirmacao_micro",
+                    admin=self._analytics_admin(telegram_id),
                     contar_interacao=False,
                 )
             except Exception:
@@ -172,9 +181,11 @@ class Default(_entry.Default):
 
         for telegram_id in candidatos.get("ids", []):
             token = await self._estado().registrar_convite_engajamento(telegram_id)
-            await _core.enviar_mensagem(
+            envio = await _core.enviar_mensagem(
                 self.env.TELEGRAM_BOT_TOKEN,
                 telegram_id,
                 texto,
                 reply_markup=_eng.teclado_convite(token),
             )
+            if envio.get("ok_http"):
+                await self._analytics_seguro(telegram_id, "engajamento_enviado", contar_interacao=False)
