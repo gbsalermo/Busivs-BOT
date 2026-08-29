@@ -2,7 +2,7 @@
 
 Documento curto para retomar o desenvolvimento rapidamente.
 
-> Atualizado em 28/08/2026 durante a Etapa 0 — Limpeza da Casa + Dossiê Mestre.
+> Atualizado em 28/08/2026 durante a Etapa 1 — Fundação de Analytics.
 
 ## Estado atual
 
@@ -12,13 +12,13 @@ Produção:
 main -> Cloudflare Workers + Telegram Webhook + Durable Object
 ```
 
-Branch da Etapa 0:
+Branch em desenvolvimento:
 
 ```text
-chore/etapa-0-limpeza-dossie
+feat/analytics-fundacao
 ```
 
-A branch nasceu do estado atual da `main` e ainda não deve ser tratada como produção até validação/merge.
+A `main` permanece com o estado estável anterior. A fundação de Analytics ainda deve ser validada antes de merge/deploy.
 
 ## Fonte de verdade
 
@@ -26,6 +26,12 @@ Regras permanentes e arquitetura:
 
 ```text
 docs/DOSSIE_MESTRE_BUSIVS.md
+```
+
+Analytics:
+
+```text
+docs/ANALYTICS.md
 ```
 
 Plano futuro:
@@ -124,70 +130,82 @@ Regras atuais:
 - fallback individual do último autor pode existir;
 - convite expira em 3 min;
 - nova confirmação confiável reinicia a lacuna de silêncio;
-- administrador não entra normalmente no lote coletivo.
-
-Limite efetivo:
-
-```text
-até 20 usuários por lote
-```
+- administrador não entra normalmente no lote coletivo;
+- limite efetivo de até 20 usuários por lote.
 
 `entry_engajamento.py` mantém constante-base 10, mas `entry_engajamento_final.py` sobrescreve `_eng.MAX_CONVIDADOS = 20`; portanto o Worker efetivo usa 20.
 
 ---
 
-## Etapa 0 — concluído na branch
+## Etapa 0 — concluída e incorporada à main
 
 Foi realizado:
 
-- criação do Dossiê Mestre;
-- atualização da arquitetura para Cloudflare real;
-- criação do plano oficial de evolução;
-- atualização do README;
-- transformação deste arquivo em continuidade curta;
-- arquivamento documental do roadmap Beta antigo;
-- criação da auditoria da Etapa 0;
-- reforço do `.gitignore`;
-- identificação da `.venv` versionada;
-- mapeamento da cadeia efetiva de produção;
-- confirmação do override efetivo de 20 usuários no engajamento.
+- Dossiê Mestre;
+- arquitetura real Cloudflare documentada;
+- plano oficial de evolução;
+- auditoria da cadeia efetiva;
+- README/Continuidade reorganizados;
+- `.gitignore` reforçado;
+- roadmap Beta antigo marcado como histórico.
 
-Nenhuma regra funcional de localização, rota, bloco, Micro, webhook, cron ou Durable Object foi alterada durante esta limpeza.
-
-### Mantido propositalmente para operação separada
-
-```text
-remoção física da .venv já versionada
-```
-
-Motivo: é mais seguro executar uma limpeza Git dedicada (`git rm -r --cached .venv`) do que centenas de deleções isoladas pela API.
-
-Também não foram consolidadas/removidas camadas `entry_*`; isso exigirá testes de regressão antes.
+A `.venv` já versionada continua reservada para uma limpeza Git dedicada.
 
 ---
 
-## Próxima etapa
+## Etapa 1 — Fundação de Analytics
 
-Depois de validar/mergear a Etapa 0:
+Branch:
 
 ```text
-ETAPA 1 — Fundação de Analytics
+feat/analytics-fundacao
 ```
 
-Objetivo:
+Implementado:
 
-- usuários únicos;
-- interações;
-- consultas de localização;
-- confirmações;
-- eventos Principal/Micro;
-- base para painel administrativo de estatísticas.
+- `cloudflare/src/analytics.py`;
+- armazenamento por dia no Durable Object;
+- usuários únicos por hash, sem Telegram ID bruto no novo armazenamento;
+- primeira e última interação;
+- total de interações;
+- total de usuários registrados desde a implantação;
+- eventos de localização, horários, marcações, Principal, Micro e engajamento;
+- separação das ações do administrador;
+- distinção entre tentativa de marcação e confirmação aceita;
+- RPC `resumo_analytics(dias)` para futura interface administrativa;
+- testes em `cloudflare/tests/test_analytics.py`;
+- documentação em `docs/ANALYTICS.md`.
 
-Regra obrigatória:
+Regra obrigatória implementada:
 
 ```text
 falha de analytics nunca pode impedir o funcionamento normal do BUSIVS
 ```
+
+Analytics está integrado somente na camada final e usa chaves próprias do Durable Object. Não houve alteração de `wrangler.jsonc`, binding, cron, horários, rota, blocos ou regras de confiabilidade.
+
+### Antes do merge
+
+Validar:
+
+1. `/start` e menu;
+2. `Onde está o ônibus?`;
+3. marcação Principal normal;
+4. fluxo de ponto suspeito;
+5. Micro;
+6. convite de engajamento;
+7. persistência dos novos dados;
+8. ausência de regressão nas regras operacionais.
+
+---
+
+## Próxima etapa após validação/merge
+
+```text
+ETAPA 2 — Painel administrativo 📊 Estatísticas
+```
+
+Usará `resumo_analytics()` para apresentar hoje, 7 dias, 30 dias, total, interações e eventos sem depender do painel da Cloudflare.
 
 ---
 
@@ -197,7 +215,8 @@ Leia nesta ordem:
 
 1. `CONTINUIDADE.md`;
 2. `docs/DOSSIE_MESTRE_BUSIVS.md`;
-3. `docs/PLANO_EVOLUCAO_BUSIVS.md`;
-4. `docs/AUDITORIA_ETAPA_0.md`;
-5. `docs/ARQUITETURA.md`;
-6. arquivos específicos da etapa em execução.
+3. `docs/ANALYTICS.md`;
+4. `docs/PLANO_EVOLUCAO_BUSIVS.md`;
+5. `docs/AUDITORIA_ETAPA_0.md`;
+6. `docs/ARQUITETURA.md`;
+7. arquivos específicos da etapa em execução.
