@@ -1,1 +1,32 @@
 .env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Ambientes virtuais
+.venv/
+venv/
+env/
+
+# IDE / SO
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Cloudflare / Wrangler
+.wrangler/
+.dev.vars
+
+# Logs e artefatos locais
+*.log
+coverage.xml
+htmlcov/
