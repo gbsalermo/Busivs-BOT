@@ -1,11 +1,12 @@
-"""Camada final de produção com engajamento colaborativo ativo.
+"""Camada final de produção com engajamento colaborativo e analytics isolado.
 
 Mantém `entry_consistencia` como base funcional e reaproveita a regra já
 consolidada de `entry_engajamento` sem recolocar heurísticas antigas na cadeia
-de localização. Esta camada existe para garantir que consultas em "Onde está o
-ônibus?" alimentem os candidatos e que o cron execute os pedidos de confirmação.
+de localização. Analytics é gravado em paralelo e nunca participa das decisões
+de rota, referência, bloco, antiteleporte ou confiabilidade.
 """
 
+import analytics as _analytics
 import entry_consistencia as _entry
 from entry_consistencia import *
 import entry_engajamento as _eng
@@ -28,8 +29,90 @@ class BusState(_entry.BusState):
     _consultas_da_janela = _eng.BusState._consultas_da_janela
     candidatos_engajamento = _eng.BusState.candidatos_engajamento
 
+    async def registrar_evento_analytics(self, telegram_id, evento, admin=False, contar_interacao=True):
+        return await _analytics.registrar_evento(
+            self.ctx.storage,
+            telegram_id,
+            evento,
+            admin=admin,
+            contar_interacao=contar_interacao,
+        )
+
+    async def resumo_analytics(self, dias=1):
+        return await _analytics.resumo(self.ctx.storage, dias)
+
+    async def registrar(self, ponto_id, telegram_id=None):
+        resultado = await super().registrar(ponto_id, telegram_id)
+        if resultado.get("aceito") and telegram_id is not None:
+            try:
+                await self.registrar_evento_analytics(
+                    telegram_id,
+                    "confirmacao_principal",
+                    contar_interacao=False,
+                )
+            except Exception:
+                pass
+        return resultado
+
+    async def registrar_micro(self, ponto_id, telegram_id=None):
+        resultado = await super().registrar_micro(ponto_id, telegram_id)
+        if resultado.get("aceito") and telegram_id is not None:
+            try:
+                await self.registrar_evento_analytics(
+                    telegram_id,
+                    "confirmacao_micro",
+                    contar_interacao=False,
+                )
+            except Exception:
+                pass
+        return resultado
+
 
 class Default(_entry.Default):
+    async def _analytics_seguro(self, telegram_id, evento, contar_interacao=True):
+        """Analytics nunca pode impedir uma resposta normal do bot."""
+        if telegram_id is None:
+            return
+        try:
+            await self._estado().registrar_evento_analytics(
+                telegram_id,
+                evento,
+                self._telegram_admin(telegram_id),
+                contar_interacao,
+            )
+        except Exception:
+            pass
+
+    def _evento_acao(self, acao):
+        if acao == "onde":
+            return "consulta_localizacao"
+        if acao == "local":
+            return "abrir_marcacao"
+        if acao == "horarios":
+            return "proximos_horarios"
+        if acao == "listar_horarios" or acao.startswith("periodo_"):
+            return "listar_horarios"
+        if acao.startswith("local_principal_"):
+            return "marcacao_principal"
+        if acao.startswith("local_micro_"):
+            return "marcacao_micro"
+        if acao in {"micro_confirmar", "micro_confirmar_sim", "micro_ativo", "veiculo_micro"}:
+            return "micro"
+        if acao in {"ajuda", "manual", "rota", "feedback"}:
+            return acao
+        if acao == "menu":
+            return "menu"
+        if acao == "desconhecido":
+            return "comando_desconhecido"
+        if acao.startswith("admin_") or acao.startswith("aviso_") or acao == "avisos":
+            return "admin"
+        return "outra_acao"
+
+    async def _menu(self, chat_id, telegram_id=None, boas_vindas=False):
+        if boas_vindas:
+            await self._analytics_seguro(telegram_id, "inicio")
+        return await super()._menu(chat_id, telegram_id, boas_vindas)
+
     async def _onde(self, chat_id, telegram_id=None):
         # Somente usuários comuns entram como candidatos. A consulta é
         # registrada antes da resposta para simular a dinâmica do grupo: quem
@@ -53,14 +136,18 @@ class Default(_entry.Default):
             token = acao.replace("engajamento_local_", "", 1)
             convite = await self._estado().consumir_convite_engajamento(telegram_id, token)
             if not convite.get("ok"):
+                await self._analytics_seguro(telegram_id, "engajamento_expirado")
                 return await self._convite_expirado(chat_id, telegram_id)
+            await self._analytics_seguro(telegram_id, "engajamento_sim")
             return await super()._acao("local", chat_id, telegram_id)
 
         if acao.startswith("engajamento_nao_vi_"):
             token = acao.replace("engajamento_nao_vi_", "", 1)
             convite = await self._estado().consumir_convite_engajamento(telegram_id, token)
             if not convite.get("ok"):
+                await self._analytics_seguro(telegram_id, "engajamento_expirado")
                 return await self._convite_expirado(chat_id, telegram_id)
+            await self._analytics_seguro(telegram_id, "engajamento_nao_vi")
             return await _core.enviar_mensagem(
                 self.env.TELEGRAM_BOT_TOKEN,
                 chat_id,
@@ -68,6 +155,7 @@ class Default(_entry.Default):
                 reply_markup=_admin.teclado_localizacao_admin(self._telegram_admin(telegram_id)),
             )
 
+        await self._analytics_seguro(telegram_id, self._evento_acao(acao))
         return await super()._acao(acao, chat_id, telegram_id)
 
     async def scheduled(self, controller, env, ctx):
