@@ -1,26 +1,30 @@
 # Auditoria — Etapa 0 / Limpeza da Casa
 
-Data: 28/08/2026  
-Branch: `chore/etapa-0-limpeza-dossie`
+Data original: 28/08/2026  
+Encerramento verificado: 31/08/2026
 
-## Objetivo
+> Documento histórico da Etapa 0. Em 31/08/2026 foi confirmado que `main` e `chore/etapa-0-limpeza-dossie` apontavam para o mesmo commit (`b7885138`), portanto a Etapa 0 deve ser considerada **concluída e incorporada à main**.
+
+## Objetivo da Etapa 0
 
 Organizar o projeto sem alterar regras de negócio ou comportamento operacional do BUSIVS.
 
-A estratégia adotada foi conservadora:
+Estratégia adotada:
 
 - documentar antes de refatorar;
-- separar Cloudflare de regras internas;
+- separar produção Cloudflare da base histórica/local;
 - identificar legado sem apagá-lo por aparência;
 - não mudar estado persistente;
-- não trocar entrypoint;
-- não alterar webhook, cron, rota, blocos, Principal ou Micro.
+- não trocar regras de rota/bloco;
+- consolidar uma fonte de verdade para decisões.
+
+---
 
 ## Arquitetura confirmada
 
 ### Camada externa
 
-`cloudflare/wrangler.jsonc` define:
+`cloudflare/wrangler.jsonc` define atualmente:
 
 ```text
 main: src/entry_engajamento_final.py
@@ -47,59 +51,62 @@ entry_engajamento_final
 -> entry_core
 ```
 
-Importante: existem imports auxiliares fora dessa linha. O mapa serve como referência, não como autorização automática para remover arquivos.
+Existem imports auxiliares fora dessa linha. O mapa serve como referência, não como autorização automática para remover arquivos.
 
-## Achados
+---
+
+## Achados da limpeza
 
 ### 1. Documentação arquitetural antiga
 
-`docs/ARQUITETURA.md` descrevia uma arquitetura planejada anterior à produção atual, com `bot.py`, JSON e SQLite local.
+A documentação inicial descrevia `bot.py`, JSON/SQLite local e polling como arquitetura principal.
 
 Ação:
 
-- substituída pela arquitetura efetiva Cloudflare + Durable Object.
+- documentação oficial passou a representar Cloudflare Worker + Telegram Webhook + Durable Object;
+- `src/` foi classificado como base histórica/local;
+- `cloudflare/` passou a ser explicitamente a referência de produção.
 
-### 2. Continuidade acumulava regra demais
-
-`CONTINUIDADE.md` virou um documento extenso de regras e ainda apontava para um entrypoint anterior.
+### 2. Continuidade acumulava regras e status antigo
 
 Ação:
 
-- transformado em documento curto de status/próximo passo;
-- regras permanentes migradas para o Dossiê Mestre.
+- `CONTINUIDADE.md` foi transformado em status curto/próximo trabalho;
+- regras permanentes foram consolidadas no Dossiê Mestre;
+- em 31/08 o arquivo foi novamente sincronizado para registrar a Etapa 0 como concluída.
 
 ### 3. Ausência de Dossiê Mestre
 
-A arquitetura e as decisões estavam espalhadas entre conversa, continuidade e camadas de código.
+A arquitetura e as decisões estavam espalhadas entre conversas, continuidade e código.
 
 Ação:
 
-- criado `docs/DOSSIE_MESTRE_BUSIVS.md`.
+- criado `docs/DOSSIE_MESTRE_BUSIVS.md` como fonte de verdade de regras e decisões.
 
 ### 4. Roadmap Beta obsoleto
 
-`docs/ROADMAP_BETA.md` descrevia etapas de um protótipo anterior e podia induzir novas implementações incompatíveis.
+`docs/ROADMAP_BETA.md` descrevia etapas de um protótipo anterior.
 
 Ação:
 
-- mantido como documento histórico com ponte para o plano atual.
+- preservado como histórico;
+- não deve orientar implementação atual.
 
 ### 5. `.venv` versionada
 
-A árvore do repositório contém `.venv` e dependências locais.
+A árvore contém ambiente virtual previamente versionado.
 
 Ação aplicada:
 
-- `.gitignore` ampliado para impedir novos arquivos de ambiente virtual, cache, Wrangler, IDE e logs.
+- `.gitignore` ampliado.
 
-Ação NÃO executada nesta branch:
+Ação pendente:
 
-- remoção física em massa da `.venv` já versionada.
+```text
+remover os arquivos já rastreados em operação Git dedicada
+```
 
-Motivo:
-
-- pela API isso exigiria grande quantidade de deleções;
-- a remoção é mais segura em uma operação Git dedicada (`git rm -r --cached .venv`) e não afeta a produção quando feita corretamente.
+Essa limpeza não deve ser misturada com regra funcional.
 
 ### 6. Limite de engajamento 10 x 20
 
@@ -109,7 +116,7 @@ Motivo:
 MAX_CONVIDADOS = 10
 ```
 
-Porém o entrypoint final efetivo contém:
+mas o entrypoint final executa:
 
 ```python
 _eng.MAX_CONVIDADOS = 20
@@ -117,85 +124,135 @@ _eng.MAX_CONVIDADOS = 20
 
 Conclusão:
 
-- produção efetiva está configurada para até 20 candidatos por lote;
-- não alterar a constante-base isoladamente durante a limpeza;
-- futura consolidação pode remover essa sobreposição, mas somente com teste de regressão.
-
-## Alterações realizadas
-
 ```text
-.gitignore
-README.md
-CONTINUIDADE.md
-docs/ARQUITETURA.md
-docs/ROADMAP_BETA.md
-docs/DOSSIE_MESTRE_BUSIVS.md
-docs/PLANO_EVOLUCAO_BUSIVS.md
-docs/AUDITORIA_ETAPA_0.md
+produção efetiva = até 20 candidatos por lote
 ```
 
-## Alterações funcionais realizadas
+A sobreposição só deve ser consolidada com teste de regressão.
+
+### 7. Engajamento fora do entrypoint
+
+Em 25/08/2026 foi observado que os avisos proativos não estavam chegando.
+
+Causa encontrada:
+
+```text
+wrangler main -> entry_consistencia.py
+```
+
+mesmo com a lógica de engajamento presente em outra camada.
+
+Correções realizadas:
+
+```text
+66ce4f3 — reintegra avisos colaborativos ao entrypoint final
+020f09c — wrangler usa entry_engajamento_final.py
+2a14042 — aumenta lote efetivo para 20
+```
+
+Situação após auditoria de 31/08:
+
+```text
+correção presente no código
+cron configurado
+validação real/controlada pós-correção ainda necessária
+```
+
+Foi criado um gate operacional antes da Etapa 1 para essa validação e para regressão do fluxo proativo.
+
+### 8. Fluxo Telegram antigo
+
+`docs/FLUXO_TELEGRAM.md` descrevia autenticação institucional, código por e-mail, NFC e modo de férias como se fizessem parte do produto.
+
+Confronto com produção:
+
+- o fluxo atual é baseado em botões inline;
+- não há autenticação institucional obrigatória;
+- não há NFC oficial em produção;
+- feedback simples já existe;
+- seleção administrativa de volta/Garagem existe.
+
+Ação:
+
+- fluxo reescrito com base nas camadas Cloudflare atuais;
+- ideias não implementadas foram marcadas como históricas/futuras.
+
+### 9. Bloco experimental das 20:00
+
+`cloudflare/src/dados.py` possui referência/bloco das 20:00 explicitamente experimental, mas a documentação de blocos não o incluía.
+
+Ação:
+
+- documentação sincronizada;
+- 20:00 passa a ser registrada como experimental e não garantida.
+
+---
+
+## Alterações funcionais da Etapa 0
 
 ```text
 NENHUMA
 ```
 
-Não foram alterados nesta Etapa 0:
+A revisão documental não deve alterar:
 
-- `cloudflare/wrangler.jsonc`;
-- entrypoint de produção;
-- regras de rota;
-- regras de volta;
-- blocos operacionais;
-- lógica de RU/Biblioteca/Garagem;
+- rota;
+- referência de volta;
+- Principal;
+- Micro;
 - antiteleporte;
 - Durable Object;
 - webhook;
 - cron;
-- Principal;
-- Micro;
-- engajamento efetivo.
+- regras de bloco;
+- comportamento do engajamento.
 
-## Código legado
+As correções de engajamento de 25/08 são anteriores e foram apenas registradas na documentação.
 
-Nenhuma camada `entry_*` foi removida.
+---
 
-Decisão:
-
-A dívida técnica existe, mas consolidar essas camadas sem cobertura de regressão é mais arriscado do que mantê-las.
-
-Refatoração futura deverá seguir:
+## Documentação oficial após encerramento
 
 ```text
-mapear dependência
--> cobrir comportamento com teste
--> consolidar em branch
--> validar Cloudflare + Telegram
--> só então remover legado
-```
+docs/GUIA_CONTINUIDADE_IA.md
+= handoff completo para outra IA
 
-## Documentação oficial após Etapa 0
-
-```text
 CONTINUIDADE.md
-= status e próxima etapa
+= estado atual + próximo trabalho
 
 docs/DOSSIE_MESTRE_BUSIVS.md
-= fonte de verdade das regras e arquitetura
+= regras e decisões permanentes
 
 docs/PLANO_EVOLUCAO_BUSIVS.md
 = roadmap oficial
 
 docs/ARQUITETURA.md
-= visão técnica resumida
+= visão técnica
+
+docs/BLOCOS_OPERACIONAIS.md
+= blocos/transições
+
+docs/FLUXO_TELEGRAM.md
+= UX atual
+
+docs/SETUP_LOCAL.md
+= setup atual
+
+cloudflare/README.md
+= produção/deploy
 ```
 
-## Próximo passo
+---
 
-Após validar e promover esta limpeza:
+## Próximo passo após Etapa 0
 
 ```text
-ETAPA 1 — Fundação de Analytics
+GATE OPERACIONAL
+-> validar engajamento proativo pós-correção
+-> criar regressão essencial
+
+ETAPA 1
+-> Fundação de Analytics
 ```
 
-A implementação de analytics deve ser tolerante a falhas e nunca bloquear o fluxo operacional do BUSIVS.
+Analytics deve continuar sendo observacional e nunca bloquear o funcionamento normal do BUSIVS.

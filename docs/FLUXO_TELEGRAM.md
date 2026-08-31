@@ -1,227 +1,295 @@
-# Fluxo do Telegram
+# Fluxo do Telegram — BUSIVS BOT
 
-## 1. Primeiro acesso
+> UX efetiva da produção Cloudflare em 31/08/2026. Este arquivo substitui o fluxo inicial do protótipo que previa autenticação institucional e NFC.
+
+## 1. Princípio de interface
+
+A experiência principal é feita por **botões inline**. Comandos são secundários e não devem ser documentados como existentes sem conferir os handlers atuais.
+
+O ponto de entrada seguro é `/start`, que abre o menu.
+
+---
+
+## 2. Primeiro acesso / menu
 
 ```text
 /start
   ↓
-Olá! Eu sou o BUSIVS 🚌
+👋 Bem-vindo ao BUSIVS!
+  ↓
+🚌 BUSIVS BOT
+Escolha uma opção:
 
 [ 🚌 Onde está o ônibus? ]
-[ 📍 Informar passagem ]
+[ 📍 Informar ponto atual ]      <- apenas quando há operação disponível
 [ ⏰ Próximos horários ]
+[ 📋 Listar horários ]
+[ 🚐 Confirmar que o micro está rodando ]
+[ ❓ Ajuda ]
+```
+
+Quando o Micro já está ativo, o botão muda para indicar que ele está em operação.
+
+Usuário comum não precisa validar e-mail institucional para consultar ou registrar ponto no fluxo atual.
+
+---
+
+## 3. Onde está o ônibus?
+
+```text
+🚌 Onde está o ônibus?
+        ↓
+CIRCULAR PRINCIPAL
++ última confirmação/estado confiável
++ sentido/próximo ponto quando aplicável
++ referência da volta
++ contexto de retorno/Garagem quando aplicável
+```
+
+Se o Micro estiver ativo, a mesma resposta inclui uma seção separada:
+
+```text
+────────────
+🚐 MICRO — REFORÇO
+```
+
+Principal e Micro nunca devem compartilhar o mesmo estado de localização.
+
+A resposta também pode incluir impacto de avisos operacionais ativos, como atraso, chuva, quebra, portão fechado ou rota temporariamente alterada.
+
+Após a consulta, usuário comum pode se tornar candidato ao mecanismo de engajamento colaborativo enquanto o bloco estiver ativo.
+
+---
+
+## 4. Informar ponto atual
+
+O botão só aparece quando existe operação do Principal e/ou Micro disponível.
+
+### Apenas Principal ativo
+
+```text
+📍 Informar ponto atual
+        ↓
+Onde o circular principal acabou de passar?
+        ↓
+[ pontos da rota ]
+```
+
+### Apenas Micro ativo
+
+```text
+📍 Informar ponto atual
+        ↓
+Onde o micro acabou de passar?
+        ↓
+[ pontos da rota ]
+```
+
+### Principal + Micro ativos
+
+```text
+📍 Informar ponto atual
+        ↓
+📍 Qual veículo você viu?
+
+[ 🚌 Circular principal ]
+[ 🚐 Micro — reforço ]
+        ↓
+[ pontos da rota ]
+```
+
+A confirmação deve ser usada somente quando o usuário realmente viu o veículo passar.
+
+Fora de uma janela operacional válida, o backend também deve rejeitar tentativa antiga/direta de registro.
+
+---
+
+## 5. Saltos suspeitos
+
+Quando uma marcação representa salto temporal muito característico, o fluxo pode pedir confirmação adicional.
+
+```text
+ponto suspeito
+  ↓
+Você tem certeza?
+  ├─ cancelar -> mantém estado confiável anterior
+  └─ confirmar -> salva indicação NÃO CONFIÁVEL
+```
+
+A indicação não confiável não substitui a última localização confiável e não abre/fecha volta.
+
+---
+
+## 6. Micro-ônibus
+
+Quando ainda não está ativo:
+
+```text
+[ 🚐 Confirmar que o micro está rodando ]
+        ↓
+[ ✅ Sim, está rodando ]
+[ ❌ Voltar ]
+```
+
+A ativação representa evidência de que o Micro está operando; ela não prova sua posição física.
+
+Depois de ativo, Principal e Micro continuam independentes e o usuário pode marcar pontos específicos do Micro.
+
+---
+
+## 7. Próximos horários
+
+```text
+[ ⏰ Próximos horários ]
+```
+
+Mostra as próximas referências do Circular Principal conforme a rotina cadastrada e, quando aplicável, informações do Micro.
+
+Horário continua sendo referência operacional, não posição automática.
+
+---
+
+## 8. Listar horários
+
+```text
+[ 📋 Listar horários ]
+        ↓
+[ 🌅 Manhã ] [ 🍽️ Almoço ]
+[ 🌤️ Tarde ] [ 🌙 Noite ]
+```
+
+A fonte oficial das referências é:
+
+```text
+cloudflare/src/dados.py
+```
+
+A referência das 20:00 deve aparecer como **experimental**, pois pode não ocorrer.
+
+---
+
+## 9. Ajuda
+
+```text
+[ ❓ Ajuda ]
+        ↓
 [ 🗺️ Rota atual ]
+[ 📖 Dicas para uso do BOT ]
+[ 💬 Enviar feedback ]
+[ ⬅️ Voltar ao menu ]
+```
+
+### Feedback
+
+```text
+💬 Enviar feedback
+        ↓
+Bot solicita resposta em texto
+        ↓
+Usuário responde
+        ↓
+Feedback é encaminhado ao administrador
+        ↓
+✅ confirmação ao usuário
+```
+
+O feedback simples já está em produção. Categorização estruturada pertence à Etapa 6 do roadmap.
+
+---
+
+## 10. Engajamento colaborativo proativo
+
+Quando uma volta fica sem confirmação por tempo suficiente, usuários comuns que consultaram `Onde está o ônibus?` podem receber:
+
+```text
+🚌 Você viu o circular recentemente?
+
+A localização está há alguns minutos sem nova confirmação.
+
+[ 📍 Sim, marcar ponto ]
+[ ❌ Não vi ]
+```
+
+Regras principais:
+
+- convite válido por 3 minutos;
+- até 20 usuários por lote em produção;
+- máximo de 2 lotes coletivos por volta;
+- tempos maiores em horário de pico;
+- nova confirmação confiável reinicia a lacuna.
+
+Se o convite expirar, o usuário deve voltar ao menu para registrar normalmente.
+
+O fluxo foi corrigido em código em 25/08/2026 após o entrypoint do Worker ser ajustado para `entry_engajamento_final.py`; ainda existe um gate de validação controlada/regressão antes de Analytics.
+
+---
+
+## 11. Administração
+
+O administrador recebe opções adicionais sem poluir o menu dos demais usuários.
+
+### Referência de volta
+
+```text
+[ 🧭 Escolher volta de referência ]
+        ↓
+referências oficiais do bloco atual
+        ↓
+admin escolhe explicitamente a referência correta
+```
+
+Não usar o conceito antigo de apenas “retornar à volta anterior”.
+
+### Garagem
+
+```text
+[ 🅿️ Garagem / Encerrar bloco ]
+        ↓
+marca encerramento administrativo do bloco
+```
+
+### Avisos
+
+```text
 [ 📢 Avisos ]
-```
-
-A consulta pode funcionar sem cadastro. Ao tentar informar passagem, o bot verifica autenticação.
-
-## 2. Autenticação
-
-```text
-📍 Informar passagem
         ↓
-Usuário não autenticado
-        ↓
-"Para confirmar a passagem do ônibus, valide seu e-mail institucional."
-        ↓
-[ Validar e-mail ]
-        ↓
-aluno@....ufrb...
-        ↓
-envio de código
-        ↓
-123456
-        ↓
-✅ Conta validada
+avisos predefinidos
++ aviso personalizado
++ remover aviso
++ limpar avisos
 ```
 
-Depois disso o Telegram fica vinculado ao e-mail.
+### Outros controles
 
-## 3. Informar localização manualmente
+As camadas finais também possuem ajustes administrativos de ponto/sentido e Micro. Antes de alterar esses fluxos, conferir `entry_admin_hub.py`, `entry_micro_admin.py` e arquivos relacionados.
 
-Comando `/local` ou botão `📍 Informar passagem`.
+---
+
+## 12. O que NÃO está implementado em produção
+
+Os itens abaixo apareceram no desenho inicial do protótipo, mas não fazem parte do fluxo atual:
 
 ```text
-Qual ônibus você está vendo?
-
-[ 🚌 Principal ]
-[ 🚐 Micro ]
-        ↓
-Em qual ponto ele acabou de passar?
-
-[ 01 ] [ 02 ] [ 03 ]
-[ 04 ] [ 05 ] [ 06 ]
-[ 07 ] [ 08 ] [ 09 ]
-[ 10 ] [ 11 ] [ 12 ]
-        ↓
-Ponto 06 - Biblioteca?
-
-[ ✅ Confirmar ]
-[ ❌ Cancelar ]
-        ↓
-✅ Passagem registrada.
+❌ autenticação obrigatória por e-mail institucional
+❌ envio/validação de código por e-mail
+❌ NFC/deep link por ponto como mecanismo oficial
+❌ modo de férias automático
 ```
 
-## 4. Informar via NFC
+Eles não devem ser implementados apenas porque aparecem no histórico do Git. Qualquer retomada exige nova decisão e inclusão explícita no plano oficial.
 
-Tag do ponto contém um deep link:
+---
+
+## 13. Regra de documentação
+
+Ao atualizar este arquivo, confronte sempre o fluxo com:
 
 ```text
-https://t.me/BUSIVS_BOT?start=local_P06
+cloudflare/src/entry_engajamento_final.py
+cloudflare/src/entry_consistencia.py
+cloudflare/src/entry_admin_hub.py
+cloudflare/src/entry.py
+cloudflare/src/entry_core.py
 ```
 
-Fluxo:
-
-```text
-NFC
- ↓
-Telegram abre
- ↓
-bot identifica P06
- ↓
-usuário autenticado?
- ├─ não -> autenticação
- └─ sim
-      ↓
-"Confirmar que o ônibus passou no P06?"
-      ↓
-[ Principal ] [ Micro ]
-      ↓
-[ ✅ Confirmar ]
-```
-
-NFC e `/local` terminam na mesma função de registro.
-
-## 5. Onde está o ônibus?
-
-Botão `🚌 Onde está o ônibus?` ou `/onde`.
-
-```text
-Qual veículo?
-
-[ 🚌 Principal ]
-[ 🚐 Micro ]
-```
-
-Resposta esperada:
-
-```text
-🚌 Principal - saída 17:30
-
-📍 Última confirmação:
-Biblioteca
-17:48 (há 3 min)
-
-➡️ Próximo ponto:
-Pavilhão II
-
-⏱️ Previsão:
-aprox. 4 min
-
-🟢 Atualização recente
-```
-
-## 6. Próximos horários
-
-`/horarios`
-
-```text
-⏰ Principal
-
-Próxima saída: 18:10
-Depois: 18:50
-
-Primeira do dia: XX:XX
-Última do dia: XX:XX
-
-[ 🚐 Ver Micro ]
-```
-
-## 7. Regra diária do Micro
-
-Início do dia:
-
-```text
-Micro = NAO_CONFIRMADO
-```
-
-Primeira passagem válida:
-
-```text
-Micro = ATIVO
-```
-
-Se a janela configurada da primeira operação passar sem confirmação:
-
-```text
-Micro = PROVAVELMENTE_INATIVO
-```
-
-Mensagem:
-
-```text
-🚐 Micro
-
-Ainda não tivemos nenhuma confirmação hoje.
-É provável que o Micro não esteja operando.
-```
-
-Uma confirmação posterior muda imediatamente para `ATIVO`.
-
-## 8. Rota atual
-
-`/rota`
-
-Normal:
-
-```text
-🗺️ Rota atual: NORMAL
-
-Garagem
-→ trecho interno
-→ Portão 2
-→ trecho externo
-→ Portão 1
-→ retorno
-
-✅ Sem alteração informada.
-```
-
-## 9. Férias
-
-Pós-protótipo.
-
-```text
-🏖️ Período de férias
-
-O Circular está operando com horários reduzidos.
-
-[ ⏰ Ver horários ]
-```
-
-## 10. Avisos
-
-`/avisos`
-
-```text
-🌧️ Bom dia!
-Há previsão de chuva hoje.
-Leve um guarda-chuva ou capote ☔
-
-🚌 Circular operando normalmente.
-```
-
-## Comandos planejados
-
-```text
-/start      Menu
-/onde       Última posição + ETA
-/local      Informar passagem
-/horarios   Próximos horários
-/rota       Rota ativa
-/avisos     Avisos
-/ajuda      Explicação do sistema
-```
-
-Os botões são a UX principal; comandos funcionam como atalhos.
+A cadeia Cloudflare é a referência de produção; a antiga interface em `src/` é histórica/local.
