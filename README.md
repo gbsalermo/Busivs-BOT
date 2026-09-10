@@ -8,7 +8,7 @@ Bot comunitário para acompanhar o Circular da UFRB — Campus Cruz das Almas pe
 
 O primeiro fluxo do bot já está rodando via Telegram com o comando `/start` e menu por botões inline.
 
-![Interface inicial do BUSIVS BOT](docs/images/interface-inicial.jpg)
+![Interface inicial do BUSIVS BOT](docs/images/interface-inicial.png)
 
 ## Objetivo
 
