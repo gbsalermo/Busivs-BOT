@@ -4,6 +4,12 @@ Bot comunitário para acompanhar o Circular da UFRB — Campus Cruz das Almas pe
 
 > **Status em 31/08/2026:** funcional em produção com Cloudflare Workers, Telegram Webhook e Durable Object. A Etapa 0 de organização/documentação está concluída; a próxima etapa funcional é Analytics, precedida por uma validação operacional do engajamento proativo após as correções de 25/08.
 
+## Interface inicial
+
+O primeiro fluxo do bot já está rodando via Telegram com o comando `/start` e menu por botões inline.
+
+![Interface inicial do BUSIVS BOT](docs/images/interface-inicial.jpg)
+
 ## Objetivo
 
 O BUSIVS reduz a incerteza de quem espera o circular sem depender, nesta fase, de aplicativo próprio ou GPS dedicado.
